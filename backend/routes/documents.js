@@ -3,10 +3,9 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
 const { body, param, validationResult } = require('express-validator');
-const DocumentController = require('../controllers/documentController');
+const documentController = require('../controllers/documentController');
 
 const router = express.Router();
-const documentController = new DocumentController();
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({

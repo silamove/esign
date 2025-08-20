@@ -180,6 +180,156 @@ npm start               # Start production servers
 - All signature fields are permanently embedded
 - Original document structure is preserved
 
+## 📝 Document Signing Workflows
+
+### 🎯 Optimal Signing Flow
+
+#### **Scenario 1: Single User Self-Signing**
+```
+1. Upload Document
+   ├── Drag & drop PDF or click upload
+   ├── Automatic validation (size, format)
+   └── Instant preview generation
+
+2. Prepare Document
+   ├── Open document editor
+   ├── Navigate multi-page documents
+   ├── Zoom and position for accuracy
+   └── Review document content
+
+3. Add Signature Fields
+   ├── Select signature tool from palette
+   ├── Click to place signature fields
+   ├── Drag to reposition if needed
+   ├── Resize for proper proportions
+   └── Preview field placement
+
+4. Create/Select Signature
+   ├── Draw new signature with mouse/stylus
+   ├── OR select from saved signature library
+   ├── Adjust signature size and position
+   └── Apply to all signature fields
+
+5. Add Supporting Information
+   ├── Add text fields (name, title, company)
+   ├── Insert date fields (auto-current or custom)
+   ├── Fill any required form fields
+   └── Review all entries
+
+6. Finalize & Download
+   ├── Preview final document
+   ├── Download signed PDF
+   ├── Save signature template for reuse
+   └── Document automatically saved to library
+```
+
+#### **Scenario 2: Multi-Party Sequential Signing**
+```
+1. Document Initiator Workflow
+   ├── Upload document
+   ├── Define signing order (Signer 1 → Signer 2 → Signer 3)
+   ├── Place signature fields for each party
+   ├── Add labels ("CEO Signature", "Witness", "Date")
+   ├── Set required vs optional fields
+   └── Generate secure signing links
+
+2. First Signer Experience
+   ├── Receive secure email with signing link
+   ├── One-click access (no account required)
+   ├── Review document and their assigned fields
+   ├── Complete signature and required fields
+   ├── Submit and forward to next signer
+   └── Receive confirmation email
+
+3. Subsequent Signers
+   ├── Automatic notification when their turn arrives
+   ├── View previous signatures (read-only)
+   ├── Complete their assigned fields
+   ├── Option to add comments or notes
+   └── Forward to next party
+
+4. Final Completion
+   ├── All parties notified when complete
+   ├── Final signed document distributed
+   ├── Audit trail with timestamps
+   └── Archive in document management system
+```
+
+#### **Scenario 3: Bulk Document Signing**
+```
+1. Template Creation
+   ├── Create master template with common fields
+   ├── Define variable fields (names, dates, amounts)
+   ├── Set up auto-population rules
+   └── Save as reusable template
+
+2. Batch Processing
+   ├── Upload multiple documents
+   ├── Apply template to all documents
+   ├── Bulk assign signature fields
+   ├── Review and adjust individual documents
+   └── Process all signatures simultaneously
+
+3. Signature Application
+   ├── Select signature from library
+   ├── Apply to all documents at once
+   ├── Customize text fields per document
+   ├── Batch validation and error checking
+   └── Generate all signed documents
+
+4. Distribution
+   ├── Bulk download as ZIP file
+   ├── Individual document access
+   ├── Automated email distribution
+   └── Integration with document management
+```
+
+### ⚡ Quick Reference: Common Signing Scenarios
+
+#### **Personal Document (2 minutes)**
+```bash
+Upload PDF → Place signature field → Draw signature → Download
+```
+
+#### **Business Contract (5 minutes)**
+```bash
+Upload → Add multiple signature fields → Add text fields (name, title, date) 
+→ Apply signatures → Review → Download
+```
+
+#### **Legal Agreement (10 minutes)**
+```bash
+Upload → Identity verification → Place all required fields → Witness signature 
+→ Notarization (if required) → Generate audit trail → Download with certificates
+```
+
+#### **Bulk Processing (15 minutes for 10+ documents)**
+```bash
+Create template → Upload multiple PDFs → Apply template to all 
+→ Batch signature application → Review and adjust → Bulk download
+```
+
+### 🎯 Signing Flow Optimization Tips
+
+#### **For Document Creators**
+- **Pre-plan Field Placement**: Review document before uploading
+- **Use Templates**: Create reusable templates for recurring document types
+- **Clear Instructions**: Add field labels and instructions for signers
+- **Test the Flow**: Complete a test signing before sending to others
+
+#### **For Signers**
+- **Use Appropriate Device**: Tablet/stylus for best signature quality
+- **Zoom for Precision**: Use zoom controls for accurate field placement
+- **Save Signatures**: Create signature library for faster future signing
+- **Review Before Finalizing**: Check all fields before downloading
+
+#### **For Organizations**
+- **Standardize Templates**: Create consistent signing experiences
+- **Train Users**: Provide clear instructions for common workflows
+- **Monitor Analytics**: Track completion rates and optimize pain points
+- **Integrate Systems**: Connect with existing business workflows
+```
+
 ## 🔌 API Documentation
 
 ### Authentication Endpoints

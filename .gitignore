@@ -1,11 +1,19 @@
 # Dependencies
 node_modules/
+backend/node_modules/
 frontend/node_modules/
+frontend-new/node_modules/
 
 # Production builds
 /build
+backend/build/
 frontend/build/
 frontend/dist/
+frontend-new/build/
+frontend-new/dist/
+
+# React Router build cache
+frontend-new/.react-router/
 
 # Environment variables
 .env

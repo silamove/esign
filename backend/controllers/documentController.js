@@ -2,6 +2,7 @@ const Document = require('../models/Document');
 const path = require('path');
 const fs = require('fs').promises;
 const { PDFDocument, rgb } = require('pdf-lib');
+const slugify = require('slugify');
 
 class DocumentController {
   // Get all user's documents
@@ -207,8 +208,10 @@ class DocumentController {
   // Serve PDF file
   async serveFile(req, res, next) {
     try {
+      console.log(`Serving file for document UUID: ${req.params.uuid}`);
       const document = await Document.findByUuid(req.params.uuid);
       if (!document) {
+        console.log('Document not found');
         return res.status(404).json({
           success: false,
           error: 'Document not found'
@@ -216,6 +219,7 @@ class DocumentController {
       }
 
       if (document.userId !== req.user.id) {
+        console.log('Access denied for user:', req.user.id);
         return res.status(403).json({
           success: false,
           error: 'Access denied'
@@ -223,10 +227,13 @@ class DocumentController {
       }
 
       const filePath = path.join(__dirname, '../../uploads', document.filename);
+      console.log('Attempting to serve file:', filePath);
       
       try {
         await fs.access(filePath);
+        console.log('File exists, serving...');
       } catch (error) {
+        console.log('File not found on disk:', filePath);
         return res.status(404).json({
           success: false,
           error: 'File not found on disk'
@@ -234,8 +241,11 @@ class DocumentController {
       }
 
       res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.sendFile(filePath);
     } catch (error) {
+      console.error('Error serving file:', error);
       next(error);
     }
   }
@@ -403,6 +413,109 @@ class DocumentController {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="signed-${document.originalName}"`);
       res.send(Buffer.from(pdfBytes));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Generate temporary view URL for secure file access
+  async generateViewUrl(req, res, next) {
+    try {
+      const document = await Document.findByUuid(req.params.uuid);
+      if (!document) {
+        return res.status(404).json({
+          success: false,
+          error: 'Document not found'
+        });
+      }
+
+      if (document.userId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+      }
+
+      // Generate a temporary access token (valid for 5 minutes)
+      const crypto = require('crypto');
+      const tempToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
+
+      // Store the temporary token in memory (in production, use Redis or database)
+      if (!global.tempTokens) {
+        global.tempTokens = new Map();
+      }
+      
+      global.tempTokens.set(tempToken, {
+        documentUuid: document.uuid,
+        userId: req.user.id,
+        expiresAt
+      });
+
+      // Clean up expired tokens
+      for (const [token, data] of global.tempTokens.entries()) {
+        if (data.expiresAt < new Date()) {
+          global.tempTokens.delete(token);
+        }
+      }
+
+      const viewUrl = `http://localhost:3001/api/documents/view/${tempToken}`;
+
+      res.json({
+        success: true,
+        data: {
+          viewUrl,
+          expiresAt: expiresAt.toISOString()
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Serve file using temporary token
+  async serveFileWithTempToken(req, res, next) {
+    try {
+      const tempToken = req.params.token;
+      
+      // Check if temporary tokens storage exists
+      if (!global.tempTokens || !global.tempTokens.has(tempToken)) {
+        return res.status(404).send('Access link expired or invalid');
+      }
+
+      const tokenData = global.tempTokens.get(tempToken);
+      
+      // Check if token is expired
+      if (tokenData.expiresAt < new Date()) {
+        global.tempTokens.delete(tempToken);
+        return res.status(404).send('Access link expired');
+      }
+
+      // Get the document
+      const document = await Document.findByUuid(tokenData.documentUuid);
+      if (!document) {
+        return res.status(404).send('Document not found');
+      }
+
+      const filePath = path.join(__dirname, '../../uploads', document.filename);
+      
+      try {
+        await fs.access(filePath);
+      } catch (error) {
+        return res.status(404).send('File not found');
+      }
+
+      // Set appropriate headers for PDF viewing
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${document.originalName}"`);
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
+      // Delete the temporary token after use (one-time use)
+      global.tempTokens.delete(tempToken);
+      
+      res.sendFile(filePath);
     } catch (error) {
       next(error);
     }

@@ -5,7 +5,7 @@ class SignatureController {
   async getSignatures(req, res, next) {
     try {
       const signatures = await db.all(
-        'SELECT * FROM signatures WHERE userId = ? ORDER BY createdAt DESC',
+        'SELECT * FROM signatures WHERE user_id = ? ORDER BY created_at DESC',
         [req.user.id]
       );
       
@@ -26,13 +26,13 @@ class SignatureController {
       // If this is set as default, unset other defaults
       if (isDefault) {
         await db.run(
-          'UPDATE signatures SET isDefault = false WHERE userId = ? AND type = ?',
+          'UPDATE signatures SET is_default = false WHERE user_id = ? AND type = ?',
           [req.user.id, type]
         );
       }
 
       const result = await db.run(
-        `INSERT INTO signatures (userId, name, signatureData, type, isDefault)
+        `INSERT INTO signatures (user_id, name, signature_data, type, is_default)
          VALUES (?, ?, ?, ?, ?)`,
         [req.user.id, name, signatureData, type, isDefault]
       );
@@ -59,7 +59,7 @@ class SignatureController {
       
       // Check if signature belongs to user
       const signature = await db.get(
-        'SELECT * FROM signatures WHERE id = ? AND userId = ?',
+        'SELECT * FROM signatures WHERE id = ? AND user_id = ?',
         [signatureId, req.user.id]
       );
 
@@ -80,18 +80,18 @@ class SignatureController {
       }
 
       if (signatureData !== undefined) {
-        updates.push('signatureData = ?');
+        updates.push('signature_data = ?');
         values.push(signatureData);
       }
 
       if (isDefault !== undefined) {
-        updates.push('isDefault = ?');
+        updates.push('is_default = ?');
         values.push(isDefault);
         
         // If setting as default, unset others
         if (isDefault) {
           await db.run(
-            'UPDATE signatures SET isDefault = false WHERE userId = ? AND type = ? AND id != ?',
+            'UPDATE signatures SET is_default = false WHERE user_id = ? AND type = ? AND id != ?',
             [req.user.id, signature.type, signatureId]
           );
         }
@@ -133,7 +133,7 @@ class SignatureController {
       
       // Check if signature belongs to user
       const signature = await db.get(
-        'SELECT * FROM signatures WHERE id = ? AND userId = ?',
+        'SELECT * FROM signatures WHERE id = ? AND user_id = ?',
         [signatureId, req.user.id]
       );
 
@@ -161,7 +161,7 @@ class SignatureController {
       const signatureId = req.params.id;
       
       const signature = await db.get(
-        'SELECT * FROM signatures WHERE id = ? AND userId = ?',
+        'SELECT * FROM signatures WHERE id = ? AND user_id = ?',
         [signatureId, req.user.id]
       );
 
@@ -188,7 +188,7 @@ class SignatureController {
       
       // Check if signature belongs to user
       const signature = await db.get(
-        'SELECT * FROM signatures WHERE id = ? AND userId = ?',
+        'SELECT * FROM signatures WHERE id = ? AND user_id = ?',
         [signatureId, req.user.id]
       );
 
@@ -201,13 +201,13 @@ class SignatureController {
 
       // Unset all other defaults for this type
       await db.run(
-        'UPDATE signatures SET isDefault = false WHERE userId = ? AND type = ?',
+        'UPDATE signatures SET is_default = false WHERE user_id = ? AND type = ?',
         [req.user.id, signature.type]
       );
 
       // Set this one as default
       await db.run(
-        'UPDATE signatures SET isDefault = true WHERE id = ?',
+        'UPDATE signatures SET is_default = true WHERE id = ?',
         [signatureId]
       );
 
@@ -232,7 +232,7 @@ class SignatureController {
       const { type = 'signature' } = req.query;
       
       const signature = await db.get(
-        'SELECT * FROM signatures WHERE userId = ? AND type = ? AND isDefault = true',
+        'SELECT * FROM signatures WHERE user_id = ? AND type = ? AND is_default = true',
         [req.user.id, type]
       );
 

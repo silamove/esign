@@ -15,7 +15,7 @@ const signatureRoutes = require('./routes/signatures');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
-const authMiddleware = require('./middleware/auth');
+const { authMiddleware } = require('./middleware/auth');
 
 // Import database
 const db = require('./models/database');
@@ -29,13 +29,14 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-eval'"],
+      scriptSrc: ["'self'", "'unsafe-eval'", "https://unpkg.com"],
       imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'"],
+      connectSrc: ["'self'", "https://unpkg.com"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
       frameSrc: ["'none'"],
+      workerSrc: ["'self'", "blob:", "https://unpkg.com"],
     },
   },
 }));
@@ -51,7 +52,7 @@ app.use(limiter);
 // Stricter rate limiting for auth endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: process.env.NODE_ENV === 'development' ? 50 : 5, // More lenient in development
   message: 'Too many authentication attempts, please try again later.',
 });
 
@@ -85,6 +86,14 @@ app.get('/api/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authLimiter, authRoutes);
+
+// Public document view route (no auth required)
+const documentController = require('./controllers/documentController');
+app.get('/api/documents/view/:token', async (req, res, next) => {
+  await documentController.serveFileWithTempToken(req, res, next);
+});
+
+// Protected routes (require authentication)
 app.use('/api/documents', authMiddleware, documentRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/signatures', authMiddleware, signatureRoutes);

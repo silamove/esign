@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const { body, param, validationResult } = require('express-validator');
 const documentController = require('../controllers/documentController');
+const { authenticateFileAccess } = require('../middleware/fileAuth');
 
 const router = express.Router();
 
@@ -16,7 +17,8 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `${req.user.id}-${uniqueSuffix}.pdf`);
+    const originalNameWithoutExt = path.parse(file.originalname).name;
+    cb(null, `${originalNameWithoutExt}-${uniqueSuffix}.pdf`);
   }
 });
 
@@ -54,41 +56,51 @@ const validateFieldId = [
 ];
 
 // Routes using controller methods
-router.get('/', documentController.getAllDocuments.bind(documentController));
+router.get('/', (req, res, next) => documentController.getAllDocuments(req, res, next));
 
 router.post('/upload', 
   upload.single('pdf'), 
-  documentController.uploadDocument.bind(documentController)
+  (req, res, next) => documentController.uploadDocument(req, res, next)
 );
 
 router.get('/:uuid', 
   validateUUID, 
-  documentController.getDocumentById.bind(documentController)
+  (req, res, next) => documentController.getDocument(req, res, next)
 );
 
 router.get('/:uuid/file', 
-  validateUUID, 
-  documentController.serveDocumentFile.bind(documentController)
+  validateUUID,
+  authenticateFileAccess,
+  (req, res, next) => documentController.serveFile(req, res, next)
 );
 
 router.post('/:uuid/fields', 
   [...validateUUID, ...validateFieldData], 
-  documentController.addField.bind(documentController)
+  (req, res, next) => documentController.addField(req, res, next)
 );
 
 router.delete('/:uuid/fields/:fieldId', 
   [...validateUUID, ...validateFieldId], 
-  documentController.removeField.bind(documentController)
+  (req, res, next) => documentController.removeField(req, res, next)
 );
 
 router.post('/:uuid/download', 
   validateUUID, 
-  documentController.downloadSignedDocument.bind(documentController)
+  (req, res, next) => documentController.downloadSignedPdf(req, res, next)
 );
 
 router.delete('/:uuid', 
   validateUUID, 
-  documentController.deleteDocument.bind(documentController)
+  (req, res, next) => documentController.deleteDocument(req, res, next)
+);
+
+router.post('/:uuid/view-url',
+  validateUUID,
+  (req, res, next) => documentController.generateViewUrl(req, res, next)
+);
+
+router.get('/view/:token',
+  (req, res, next) => documentController.serveFileWithTempToken(req, res, next)
 );
 
 module.exports = router;

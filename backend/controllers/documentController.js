@@ -567,9 +567,13 @@ class DocumentController {
       const base64Data = signatureDataUrl.replace(/^data:image\/png;base64,/, '');
       const signatureImage = await pdfDoc.embedPng(base64Data);
       
+      // Convert coordinates from HTML (top-left origin) to PDF (bottom-left origin)
+      const pageHeight = page.getHeight();
+      const pdfY = pageHeight - y - height; // Flip Y coordinate and adjust for signature height
+      
       page.drawImage(signatureImage, {
         x: x,
-        y: y,
+        y: pdfY,
         width: width,
         height: height
       });
@@ -587,9 +591,13 @@ class DocumentController {
       const g = parseInt(hexColor.substr(2, 2), 16) / 255;
       const b = parseInt(hexColor.substr(4, 2), 16) / 255;
       
+      // Convert coordinates from HTML (top-left origin) to PDF (bottom-left origin)
+      const pageHeight = page.getHeight();
+      const pdfY = pageHeight - y - fontSize; // Flip Y coordinate and adjust for text height
+      
       page.drawText(text, {
         x: x,
-        y: y,
+        y: pdfY,
         size: fontSize,
         color: rgb(r, g, b)
       });
@@ -602,9 +610,13 @@ class DocumentController {
   // Helper method to add checkbox to page
   async addCheckboxToPage(pdfDoc, page, x, y, width, height, checked) {
     try {
+      // Convert coordinates from HTML (top-left origin) to PDF (bottom-left origin)
+      const pageHeight = page.getHeight();
+      const pdfY = pageHeight - y - height; // Flip Y coordinate and adjust for checkbox height
+      
       page.drawRectangle({
         x: x,
-        y: y,
+        y: pdfY,
         width: width,
         height: height,
         borderColor: rgb(0, 0, 0),
@@ -614,7 +626,7 @@ class DocumentController {
       if (checked) {
         const checkSize = Math.min(width, height) * 0.6;
         const centerX = x + width / 2;
-        const centerY = y + height / 2;
+        const centerY = pdfY + height / 2;
         
         page.drawLine({
           start: { x: centerX - checkSize/3, y: centerY },

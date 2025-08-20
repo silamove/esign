@@ -1,53 +1,62 @@
-# PDF Signature App - Full Stack Application
+# PDF Signature Application
 
-A modern, full-stack PDF signing application built with Node.js/Express backend and React frontend. This application allows users to upload PDF documents, add various field types (signatures, text, dates, checkboxes), and download the completed documents.
+A modern, secure PDF signing application built with React (Vite) frontend and Node.js/Express backend. Upload PDFs, add signature fields, text fields, and dates, then download professionally signed documents.
 
-## 🚀 Features
+![PDF Signature App](https://img.shields.io/badge/Status-Production%20Ready-green)
+![Version](https://img.shields.io/badge/Version-1.2.0-blue)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-### Authentication & User Management
-- JWT-based authentication
-- User registration and login
-- Password management
-- User profiles and settings
-- Role-based access control
+## ✨ Features
 
-### Document Management
+### 🔐 Authentication & Security
+- JWT-based authentication with secure token handling
+- User registration and login system
+- Password hashing with bcrypt
+- Rate limiting and CORS protection
+- Secure file serving with authentication
+
+### 📄 Document Management
 - PDF upload with validation (up to 50MB)
-- Multi-page PDF support
-- Document metadata tracking
-- Document sharing capabilities
-- Audit logging for all actions
+- Multi-page PDF support with thumbnail navigation
+- Real-time PDF rendering with PDF.js
+- Document metadata tracking and audit logs
+- Secure file storage and retrieval
 
-### PDF Editing Tools
-- **Signature Fields**: Draw and place digital signatures
-- **Initial Fields**: Add initials to documents
-- **Text Fields**: Add custom text with font size and color options
-- **Date Fields**: Add current date or custom dates
-- **Checkbox Fields**: Add checkable elements
+### ✍️ Digital Signature Tools
+- **Signature Fields**: Interactive signature canvas for drawing digital signatures
+- **Text Fields**: Add custom text with real-time editing
+- **Date Fields**: Auto-populate current date or custom dates
+- **Drag & Drop**: Intuitive field placement and repositioning
+- **Resize & Delete**: Full control over field dimensions and removal
+- **Signature Library**: Save and reuse signature templates
 
-### Advanced Features
-- Drag and drop field placement
-- Real-time preview of field positions
-- Resizable and deletable fields
-- Multiple signature templates per user
-- Responsive design for mobile and desktop
-- Secure file handling and storage
+### 🎨 Modern UI/UX
+- Responsive design with Tailwind CSS v4
+- Clean, professional interface
+- Real-time preview and editing
+- Zoom controls and page navigation
+- Tool palette for field types
+- Hot module reloading for development
 
-## 🏗️ Tech Stack
+## 🏗️ Technology Stack
 
 ### Backend
-- **Node.js** with Express.js framework
-- **SQLite** database with proper schema design
-- **PDF-lib** for PDF manipulation
-- **JWT** for authentication
-- **Bcrypt** for password hashing
-- **Multer** for file uploads
-- **Helmet** for security headers
+- **Node.js 18+** with Express.js framework
+- **SQLite** database with proper schema and migrations
+- **PDF-lib** for server-side PDF manipulation
+- **JWT** authentication with secure secret management
+- **Multer** for file uploads with validation
 - **Express Rate Limit** for API protection
+- **Helmet** for security headers
 
 ### Frontend
-- **React 18** with modern hooks
-- **React Router** for navigation
+- **React 18** with modern hooks and functional components
+- **Vite** for fast development and optimized builds
+- **React Router v7** for client-side navigation
+- **Tailwind CSS v4** for modern styling
+- **React PDF** for client-side PDF rendering
+- **PDF.js** worker for reliable PDF processing
+- **TypeScript** support for type safety
 - **Axios** for API communication
 - **Tailwind CSS** for styling
 - **React PDF** for PDF rendering
@@ -58,72 +67,163 @@ A modern, full-stack PDF signing application built with Node.js/Express backend 
 ## 📁 Project Structure
 
 ```
-pdf-signature-app/
+pdf-signature-workspace/
 ├── backend/                 # Express.js API server
-│   ├── controllers/         # Business logic
-│   ├── middleware/          # Authentication & error handling
-│   ├── models/             # Database models
-│   ├── routes/             # API routes
-│   └── server.js           # Main server file
-├── frontend/               # React application
+│   ├── controllers/         # Business logic controllers
+│   ├── middleware/          # Auth, error handling, validation
+│   ├── models/             # Database models and migrations
+│   ├── routes/             # API route definitions
+│   ├── seeders/            # Database seeding scripts
+│   └── server.js           # Main server entry point
+├── frontend-new/           # React + Vite application
+│   ├── app/
+│   │   ├── components/     # Reusable React components
+│   │   ├── routes/         # Page components and routing
+│   │   └── app.css         # Global styles
 │   ├── public/             # Static assets
-│   └── src/
-│       ├── components/     # React components
-│       ├── hooks/          # Custom React hooks
-│       ├── services/       # API services
-│       └── utils/          # Helper functions
+│   └── vite.config.ts      # Vite configuration
 ├── database/               # SQLite database files
-├── uploads/                # User uploaded files
-└── .env.example           # Environment variables template
+├── uploads/                # User uploaded PDF files
+├── .env                    # Environment variables
+├── .gitignore             # Git ignore rules
+├── package.json           # Workspace package manager
+└── PACKAGE_STRUCTURE.md   # Development guide
 ```
 
-## 🚦 Getting Started
+## � Quick Start
 
 ### Prerequisites
-- Node.js (v18 or higher)
-- npm or yarn package manager
+- **Node.js** 18+ and npm
+- **Git** for version control
 
-### Installation
+### Installation & Setup
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
-   cd pdf-signature-app
+   git clone https://github.com/silamove/esign.git
+   cd esign
    ```
 
-2. **Install all dependencies**
+2. **Install dependencies**
    ```bash
-   npm run install:all
+   npm install
    ```
 
 3. **Set up environment variables**
    ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
+   # .env file is already configured with secure defaults
+   # JWT_SECRET and other settings are ready for development
    ```
 
-4. **Start the development servers**
+4. **Start development servers**
    ```bash
-   # Start both backend and frontend in development mode
    npm run dev
-   
-   # Or start them separately:
-   npm run dev:backend    # Backend on http://localhost:3001
-   npm run dev:frontend   # Frontend on http://localhost:3000
    ```
+   
+   This starts:
+   - Backend server: http://localhost:4000
+   - Frontend server: http://localhost:3000
+   - Hot reload enabled for both
 
-### Environment Variables
+### Default Test Users
+The application comes with seeded test users:
 
-Copy `.env.example` to `.env` and configure:
+- **Admin**: admin@example.com / password123
+- **User**: user@example.com / password123  
+- **Demo**: demo@example.com / password123
 
+## �️ Development Commands
+
+```bash
+# Development
+npm run dev              # Start both backend and frontend with hot reload
+npm run dev:backend      # Start only backend server (port 4000)
+npm run dev:frontend     # Start only frontend dev server (port 3000)
+
+# Database
+npm run seed            # Seed database with test users
+npm run db:reset        # Reset and re-seed database
+
+# Production
+npm run build           # Build frontend for production
+npm start               # Start production servers
+```
+
+## � Usage Guide
+
+### 1. **Login/Register**
+- Navigate to http://localhost:3000
+- Login with test credentials or create a new account
+- JWT authentication provides secure session management
+
+### 2. **Upload PDF Document**
+- Click "Upload PDF" from the dashboard
+- Select a PDF file (up to 50MB)
+- Document will appear in your document list
+
+### 3. **Add Signature Fields**
+- Click "Sign" on any document to open the editor
+- Use the tool palette to select field types:
+  - **Signature**: Draw digital signatures with mouse/touch
+  - **Text**: Add custom text fields
+  - **Date**: Insert current date or custom dates
+- Click anywhere on the PDF to place fields
+- Drag fields to reposition, resize handles to adjust size
+
+### 4. **Manage Signatures**
+- Create reusable signature templates
+- Access "Signature Manager" from the dashboard
+- Save frequently used signatures for quick access
+
+### 5. **Download Signed Document**
+- Click "Download" to generate final signed PDF
+- All signature fields are permanently embedded
+- Original document structure is preserved
+
+## 🔌 API Documentation
+
+### Authentication Endpoints
+```
+POST /api/auth/login          # User authentication
+POST /api/auth/register       # New user registration
+```
+
+### Document Management
+```
+GET  /api/documents           # List user documents
+POST /api/documents/upload    # Upload new PDF
+GET  /api/documents/:uuid     # Get document metadata
+GET  /api/documents/:uuid/file # Download original PDF
+POST /api/documents/:uuid/download # Download signed PDF
+```
+
+### Signature Fields
+```
+GET  /api/documents/:uuid/fields     # Get document fields
+POST /api/documents/:uuid/fields     # Add new field
+PUT  /api/documents/:uuid/fields/:id # Update field
+DELETE /api/documents/:uuid/fields/:id # Remove field
+```
+
+### Signature Templates
+```
+GET  /api/signatures          # Get user signature templates
+POST /api/signatures          # Create signature template
+PUT  /api/signatures/:id      # Update template
+DELETE /api/signatures/:id    # Delete template
+```
+
+## 🔧 Configuration
+
+### Environment Variables (.env)
 ```env
 # Server Configuration
-PORT=3001
-NODE_ENV=development
+PORT=4000                     # Backend server port
+NODE_ENV=development          # Environment mode
 
-# JWT Configuration
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-JWT_EXPIRES_IN=7d
+# JWT Configuration  
+JWT_SECRET=your-super-secret-jwt-key-change-in-production-please
+JWT_EXPIRES_IN=7d            # Token expiration
 
 # Frontend URL (for CORS)
 FRONTEND_URL=http://localhost:3000
@@ -132,134 +232,196 @@ FRONTEND_URL=http://localhost:3000
 DATABASE_PATH=./database/signature_app.db
 
 # File Upload
-MAX_FILE_SIZE=52428800
+MAX_FILE_SIZE=52428800       # 50MB limit
 ALLOWED_FILE_TYPES=application/pdf
 ```
 
-## 📋 Available Scripts
-
-```bash
-# Development
-npm run dev              # Start both backend and frontend
-npm run dev:backend      # Start only backend server
-npm run dev:frontend     # Start only frontend development server
-
-# Production
-npm run build           # Build frontend for production
-npm start               # Start production server
-
-# Utilities
-npm run install:all     # Install dependencies for both backend and frontend
-npm test                # Run tests
-npm run lint            # Run ESLint on codebase
+### Vite Proxy Configuration
+The frontend automatically proxies API requests to the backend:
+```typescript
+// vite.config.ts
+export default defineConfig({
+  server: {
+    proxy: {
+      '/api': 'http://localhost:4000'
+    }
+  }
+})
 ```
-
-## 🔐 API Endpoints
-
-### Authentication
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `POST /api/auth/forgot-password` - Password reset request
-
-### Documents
-- `GET /api/documents` - Get user's documents
-- `POST /api/documents/upload` - Upload new PDF
-- `GET /api/documents/:uuid` - Get document details
-- `GET /api/documents/:uuid/file` - Download original PDF
-- `POST /api/documents/:uuid/fields` - Add field to document
-- `DELETE /api/documents/:uuid/fields/:fieldId` - Remove field
-- `POST /api/documents/:uuid/download` - Download signed PDF
-
-### Users
-- `GET /api/users/profile` - Get user profile
-- `PUT /api/users/profile` - Update user profile
-- `PUT /api/users/password` - Change password
-- `GET /api/users/signatures` - Get user's saved signatures
-
-### Signatures
-- `GET /api/signatures` - Get user's signature templates
-- `POST /api/signatures` - Create new signature template
-- `PUT /api/signatures/:id` - Update signature template
-- `DELETE /api/signatures/:id` - Delete signature template
 
 ## 🗄️ Database Schema
 
-The application uses SQLite with the following main tables:
+SQLite database with the following structure:
 
-- **users** - User accounts and authentication
-- **documents** - PDF documents and metadata
-- **document_fields** - Fields added to documents
-- **signatures** - Reusable signature templates
-- **document_shares** - Document sharing permissions
-- **audit_logs** - Action tracking and audit trail
+### Core Tables
+- **users** - User accounts, authentication, and profiles
+- **documents** - PDF metadata, upload tracking, and ownership
+- **document_fields** - Signature fields with positioning and data
+- **signatures** - Reusable signature templates per user
+- **audit_logs** - Complete action tracking and security logs
+- **migrations** - Database version control and schema updates
 
-## 🔒 Security Features
+### Key Features
+- Foreign key constraints for data integrity
+- Indexed columns for optimal query performance  
+- Automatic timestamps for audit trails
+- JSON field storage for flexible data structures
 
-- JWT token-based authentication
-- Password hashing with bcrypt (12 rounds)
-- Rate limiting on API endpoints
-- Input validation and sanitization
-- CORS protection
-- SQL injection prevention
-- File type validation for uploads
-- Secure file serving
-- Audit logging for all actions
+## 🔒 Security Implementation
 
-## 🚀 Deployment
+### Authentication Security
+- **JWT Tokens**: Secure token-based authentication
+- **Password Hashing**: bcrypt with 12 rounds
+- **Token Expiration**: Configurable expiration times
+- **Secure Headers**: Helmet.js for security headers
 
-### Production Build
+### API Security
+- **Rate Limiting**: Prevents brute force attacks
+- **Input Validation**: Server-side validation for all inputs
+- **SQL Injection Prevention**: Parameterized queries
+- **CORS Protection**: Controlled cross-origin requests
+- **File Validation**: Strict PDF file type checking
 
-1. **Build the frontend**
-   ```bash
-   npm run build
-   ```
+### File Security
+- **Authenticated Downloads**: JWT required for file access
+- **Secure File Paths**: Prevention of path traversal attacks
+- **File Size Limits**: 50MB maximum upload size
+- **Temporary Tokens**: Secure PDF viewing with expiring tokens
 
-2. **Set production environment**
-   ```bash
-   export NODE_ENV=production
-   ```
+## 🚀 Production Deployment
 
-3. **Start the production server**
-   ```bash
-   npm start
-   ```
+### Build for Production
+```bash
+# Build optimized frontend
+npm run build
 
-### Environment Setup for Production
+# Set production environment
+export NODE_ENV=production
 
-- Set `NODE_ENV=production`
-- Configure a strong `JWT_SECRET`
-- Set up proper CORS origins
-- Configure file upload limits
-- Set up database backups
-- Configure logging and monitoring
+# Start production servers
+npm start
+```
 
-## 🤝 Contributing
+### Production Checklist
+- [ ] Update JWT_SECRET to a strong, unique value
+- [ ] Configure FRONTEND_URL for your domain
+- [ ] Set up HTTPS/SSL certificates
+- [ ] Configure database backups
+- [ ] Set up monitoring and logging
+- [ ] Configure reverse proxy (nginx/Apache)
+- [ ] Enable compression and caching
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+### Recommended Production Settings
+```env
+NODE_ENV=production
+JWT_SECRET=your-extremely-secure-production-secret-key
+FRONTEND_URL=https://yourdomain.com
+PORT=4000
+MAX_FILE_SIZE=52428800
+```
 
-## 📝 License
+## 🐛 Troubleshooting
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### Common Issues & Solutions
 
-## 🆘 Support
+#### "No PDF loaded" Error
+- **Fixed in v1.2.0**: JWT authentication and .env loading issues resolved
+- Ensure backend is running on port 4000
+- Check that JWT_SECRET is properly loaded in .env file
+- Verify PDF.js worker is configured correctly
 
-If you encounter any issues or have questions:
+#### PDF.js Worker Errors
+- Application now uses CDN-based worker for reliability
+- If issues persist, check network connectivity
+- Worker configuration includes local fallback
 
-1. Check the [Issues](../../issues) page
-2. Create a new issue with detailed description
-3. Provide error logs and environment details
+#### Authentication Issues
+- Clear browser localStorage and re-login
+- Verify JWT_SECRET is set in .env file
+- Check token expiration (default 7 days)
 
-## 🔄 Changelog
+#### File Upload Problems
+- Maximum file size: 50MB
+- Only PDF files are supported
+- Check uploads/ directory permissions
+
+### Development Issues
+
+#### Hot Reload Not Working
+```bash
+# Restart development servers
+npm run dev
+```
+
+#### Database Issues
+```bash
+# Reset and reseed database
+npm run db:reset
+npm run seed
+```
+
+#### Port Conflicts
+- Backend: Change PORT in .env file
+- Frontend: Vite will automatically use next available port
+
+## 📚 Recent Updates
+
+### Version 1.2.0 (August 2025)
+- ✅ **Fixed PDF Loading**: Resolved JWT authentication and .env configuration
+- ✅ **Improved PDF.js**: Updated worker configuration for better reliability  
+- ✅ **Enhanced Security**: Proper JWT secret management
+- ✅ **Better Debugging**: Comprehensive logging for troubleshooting
+- ✅ **Monorepo Structure**: Cleaned up package management
+- ✅ **Git Tracking**: Unified repository structure
+
+### Version 1.1.0
+- Added signature management page
+- Implemented reusable signature templates
+- Enhanced document editor UI
+- Added field positioning and resize controls
 
 ### Version 1.0.0
 - Initial release with full-stack architecture
-- User authentication and management
-- PDF upload and field management
-- Signature, text, date, and checkbox fields
-- Document sharing and audit logging
-- Responsive React frontend
-- Comprehensive API with security features
+- User authentication and JWT security
+- PDF upload and signature field management
+- React frontend with Tailwind CSS
+- Express.js API with SQLite database
+
+## 🤝 Contributing
+
+### Development Setup
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Make your changes and test thoroughly
+4. Commit: `git commit -m 'Add amazing feature'`
+5. Push: `git push origin feature/amazing-feature`
+6. Open a Pull Request
+
+### Code Guidelines
+- Follow existing code style and patterns
+- Add comments for complex logic
+- Update tests for new features
+- Update documentation as needed
+
+## 📞 Support & Documentation
+
+### Getting Help
+- **Issues**: [GitHub Issues](https://github.com/silamove/esign/issues)
+- **Documentation**: See `PACKAGE_STRUCTURE.md` for detailed development guide
+- **Code Structure**: Well-documented components and API endpoints
+
+### Reporting Bugs
+Please include:
+- Browser and version
+- Node.js version
+- Steps to reproduce
+- Error messages and console logs
+- Screenshots if applicable
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+**Built with ❤️ using React, Node.js, and modern web technologies**

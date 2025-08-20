@@ -87,3 +87,24 @@ npm run seed                 # Seed the database with test users
 - **Backend**: http://localhost:4000 (Express + Nodemon auto-reload)
 
 Both servers support hot reload and will automatically restart when you make changes to the code.
+
+## 🔧 Git Repository Structure
+
+### ✅ Single Repository
+
+- **Root Git**: `c:\workspace\sign\.git` (main project repository)
+- **No Sub-repos**: Removed separate `.git` from `frontend-new/`
+- **Unified Tracking**: All changes tracked in single repository
+
+### 🚫 Previous Issues Fixed
+
+- ❌ **Dual Git Tracking**: frontend-new had its own `.git` repository
+- ❌ **Conflicting .gitignore**: Separate ignore rules causing confusion
+- ❌ **Split Commits**: Changes could be committed to wrong repository
+
+### ✅ Clean Solution
+
+- ✅ **Single source of truth**: One git repository for entire project
+- ✅ **Unified .gitignore**: Handles backend, frontend, and workspace files
+- ✅ **Consistent commits**: All changes committed together
+- ✅ **Proper monorepo**: Standard structure for multi-package projects

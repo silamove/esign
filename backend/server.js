@@ -5,7 +5,7 @@ const compression = require('compression');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // Import routes
 const authRoutes = require('./routes/auth');

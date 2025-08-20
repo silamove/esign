@@ -25,6 +25,7 @@ const authenticateFileAccess = async (req, res, next) => {
     }
 
     // Verify the token
+    console.log('JWT_SECRET available in fileAuth:', !!process.env.JWT_SECRET);
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.userId);
 

@@ -79,6 +79,11 @@ router.post('/:uuid/fields',
   (req, res, next) => documentController.addField(req, res, next)
 );
 
+router.get('/:uuid/fields', 
+  validateUUID, 
+  (req, res, next) => documentController.getFields(req, res, next)
+);
+
 router.delete('/:uuid/fields/:fieldId', 
   [...validateUUID, ...validateFieldId], 
   (req, res, next) => documentController.removeField(req, res, next)

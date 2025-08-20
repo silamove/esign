@@ -360,8 +360,19 @@ class DocumentController {
         });
       }
 
-      // Get all fields for the document
-      const fields = await document.getFields();
+      // Use fields from request body if provided, otherwise get saved fields
+      let fields;
+      if (req.body.fields && Array.isArray(req.body.fields)) {
+        // Use fields from the request (current frontend state)
+        fields = req.body.fields.map(field => ({
+          ...field,
+          fieldData: field.data,
+          fieldType: field.fieldType
+        }));
+      } else {
+        // Fallback to saved fields in database
+        fields = await document.getFields();
+      }
 
       // Load the PDF
       const existingPdfBytes = await fs.readFile(filePath);
@@ -516,6 +527,35 @@ class DocumentController {
       global.tempTokens.delete(tempToken);
       
       res.sendFile(filePath);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Get document fields
+  async getFields(req, res, next) {
+    try {
+      const document = await Document.findByUuid(req.params.uuid);
+      if (!document) {
+        return res.status(404).json({
+          success: false,
+          error: 'Document not found'
+        });
+      }
+
+      if (document.userId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+      }
+
+      const fields = await document.getFields();
+
+      res.json({
+        success: true,
+        data: fields
+      });
     } catch (error) {
       next(error);
     }

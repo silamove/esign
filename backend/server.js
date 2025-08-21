@@ -109,6 +109,7 @@ app.use('/api/signatures', authMiddleware, signatureRoutes);
 app.use('/api/legal-signatures', authMiddleware, legalSignatureRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/envelopes', authMiddleware, envelopeRoutes);
+app.use('/api/envelope-types', authMiddleware, require('./routes/envelope-types'));
 app.use('/api/templates', authMiddleware, templateRoutes);
 app.use('/api/templates', authMiddleware, smartTemplateRoutes);
 app.use('/api/email', authMiddleware, emailRoutes);

@@ -7,7 +7,7 @@ async function testDocumentsAPI() {
     console.log('Testing documents API...');
     
     // First, login to get a token
-    const loginResponse = await fetch('http://localhost:3001/api/auth/login', {
+    const loginResponse = await fetch('http://localhost:4000/api/auth/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -28,7 +28,7 @@ async function testDocumentsAPI() {
     console.log('✅ Login successful');
     
     // Test documents API
-    const documentsResponse = await fetch('http://localhost:3001/api/documents', {
+    const documentsResponse = await fetch('http://localhost:4000/api/documents', {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -45,7 +45,7 @@ async function testDocumentsAPI() {
     console.log('Documents:', documentsResult.data?.map(d => `${d.originalName} (${d.status})`) || []);
     
     // Test analytics API
-    const analyticsResponse = await fetch('http://localhost:3001/api/analytics/dashboard', {
+    const analyticsResponse = await fetch('http://localhost:4000/api/analytics/dashboard', {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -61,7 +61,7 @@ async function testDocumentsAPI() {
     console.log('Analytics data:', analyticsResult.data);
     
     // Test templates API
-    const templatesResponse = await fetch('http://localhost:3001/api/templates', {
+    const templatesResponse = await fetch('http://localhost:4000/api/templates', {
       headers: {
         'Authorization': `Bearer ${token}`
       }

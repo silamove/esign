@@ -16,6 +16,7 @@ const legalSignatureRoutes = require('./routes/legalSignatures');
 const analyticsRoutes = require('./routes/analytics');
 const envelopeRoutes = require('./routes/envelopes');
 const templateRoutes = require('./routes/templates');
+const smartTemplateRoutes = require('./routes/smart-templates');
 const emailRoutes = require('./routes/email');
 const securityRoutes = require('./routes/security');
 
@@ -25,6 +26,8 @@ const { authMiddleware } = require('./middleware/auth');
 
 // Import database
 const db = require('./models/database');
+
+// Force restart to pick up new PORT from .env
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -107,6 +110,7 @@ app.use('/api/legal-signatures', authMiddleware, legalSignatureRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/envelopes', authMiddleware, envelopeRoutes);
 app.use('/api/templates', authMiddleware, templateRoutes);
+app.use('/api/templates', authMiddleware, smartTemplateRoutes);
 app.use('/api/email', authMiddleware, emailRoutes);
 app.use('/api/security', authMiddleware, securityRoutes);
 

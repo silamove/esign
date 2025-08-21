@@ -109,4 +109,30 @@ router.get('/view/:token',
   (req, res, next) => documentController.serveFileWithTempToken(req, res, next)
 );
 
+// Add a simple route to serve PDF files directly (for development)
+router.get('/file/:filename', async (req, res, next) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(__dirname, '../../uploads', filename);
+    
+    // Check if file exists
+    try {
+      await fs.access(filePath);
+    } catch (error) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Set headers for PDF viewing
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    
+    // Send the file
+    res.sendFile(filePath);
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

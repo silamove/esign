@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const EnvelopeTemplate = require('../models/EnvelopeTemplate');
+const TemplateRole = require('../models/TemplateRole');
+const TemplateField = require('../models/TemplateField');
 const { authMiddleware } = require('../middleware/auth');
 
 // Apply authentication middleware to all routes
@@ -83,33 +85,17 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// Get template by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const template = await EnvelopeTemplate.findById(req.params.id);
-    if (!template) {
-      return res.status(404).json({ error: 'Template not found' });
-    }
-
-    // Check if user has access (owner or public template)
-    if (template.userId !== req.user.id && !template.isPublic) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    res.json(template);
-  } catch (error) {
-    console.error('Error fetching template:', error);
-    res.status(500).json({ error: 'Failed to fetch template' });
-  }
-});
-
-// Create new template
+// Create new template with roles and fields
 router.post('/', async (req, res) => {
   try {
-    const { name, description, category, isPublic, templateData, tags } = req.body;
+    const { 
+      name, description, category, categoryId, isPublic, templateData, tags,
+      requiresAuthentication, complianceFeatures, estimatedTime, difficultyLevel,
+      roles, fields
+    } = req.body;
 
-    if (!name || !templateData) {
-      return res.status(400).json({ error: 'Name and template data are required' });
+    if (!name) {
+      return res.status(400).json({ error: 'Template name is required' });
     }
 
     const template = await EnvelopeTemplate.create({
@@ -117,12 +103,43 @@ router.post('/', async (req, res) => {
       name,
       description,
       category,
+      categoryId,
       isPublic,
-      templateData,
-      tags
+      templateData: templateData || {},
+      tags,
+      requiresAuthentication,
+      complianceFeatures,
+      estimatedTime,
+      difficultyLevel
     });
 
-    res.status(201).json(template);
+    // Add roles if provided
+    if (roles && Array.isArray(roles)) {
+      for (const roleData of roles) {
+        await template.addRole(roleData);
+      }
+    }
+
+    // Add fields if provided
+    if (fields && Array.isArray(fields)) {
+      for (const fieldData of fields) {
+        await template.addField(fieldData);
+      }
+    }
+
+    // Return template with roles and fields
+    const [templateRoles, templateFields] = await Promise.all([
+      template.getRoles(),
+      template.getFields()
+    ]);
+
+    const result = {
+      ...template.toJSON(),
+      roles: templateRoles.map(role => role.toJSON()),
+      fields: templateFields.map(field => field.toJSON())
+    };
+
+    res.status(201).json(result);
   } catch (error) {
     console.error('Error creating template:', error);
     res.status(500).json({ error: 'Failed to create template' });
@@ -194,20 +211,298 @@ router.post('/:id/clone', async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const clonedTemplate = await EnvelopeTemplate.create({
+    const clonedTemplate = await originalTemplate.clone({
       userId: req.user.id,
       name: name || `${originalTemplate.name} (Copy)`,
-      description: description || originalTemplate.description,
-      category: originalTemplate.category,
-      isPublic: false, // Cloned templates are private by default
-      templateData: originalTemplate.templateData,
-      tags: [...originalTemplate.tags, 'cloned']
+      description: description || originalTemplate.description
     });
 
     res.status(201).json(clonedTemplate);
   } catch (error) {
     console.error('Error cloning template:', error);
     res.status(500).json({ error: 'Failed to clone template' });
+  }
+});
+
+// Get template by ID with roles and fields
+router.get('/:id', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    // Check if user has access (owner or public template)
+    if (template.userId !== req.user.id && !template.isPublic && !template.isPublished) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get roles and fields
+    const [roles, fields] = await Promise.all([
+      template.getRoles(),
+      template.getFields()
+    ]);
+
+    const result = {
+      ...template.toJSON(),
+      roles: roles.map(role => role.toJSON()),
+      fields: fields.map(field => field.toJSON())
+    };
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching template:', error);
+    res.status(500).json({ error: 'Failed to fetch template' });
+  }
+});
+
+// Template Roles Management
+
+// Get template roles
+router.get('/:id/roles', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id && !template.isPublic) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const roles = await template.getRoles();
+    res.json(roles.map(role => role.toJSON()));
+  } catch (error) {
+    console.error('Error fetching template roles:', error);
+    res.status(500).json({ error: 'Failed to fetch template roles' });
+  }
+});
+
+// Add role to template
+router.post('/:id/roles', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const role = await template.addRole(req.body);
+    res.status(201).json(role.toJSON());
+  } catch (error) {
+    console.error('Error adding template role:', error);
+    res.status(500).json({ error: 'Failed to add template role' });
+  }
+});
+
+// Update template role
+router.put('/:templateId/roles/:roleId', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.templateId);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const role = await TemplateRole.findById(req.params.roleId);
+    if (!role || role.templateId !== template.id) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    const updatedRole = await role.update(req.body);
+    res.json(updatedRole.toJSON());
+  } catch (error) {
+    console.error('Error updating template role:', error);
+    res.status(500).json({ error: 'Failed to update template role' });
+  }
+});
+
+// Delete template role
+router.delete('/:templateId/roles/:roleId', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.templateId);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const role = await TemplateRole.findById(req.params.roleId);
+    if (!role || role.templateId !== template.id) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    await role.delete();
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting template role:', error);
+    res.status(500).json({ error: 'Failed to delete template role' });
+  }
+});
+
+// Template Fields Management
+
+// Get template fields
+router.get('/:id/fields', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id && !template.isPublic) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const fields = await template.getFields();
+    res.json(fields.map(field => field.toJSON()));
+  } catch (error) {
+    console.error('Error fetching template fields:', error);
+    res.status(500).json({ error: 'Failed to fetch template fields' });
+  }
+});
+
+// Add field to template
+router.post('/:id/fields', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const field = await template.addField(req.body);
+    res.status(201).json(field.toJSON());
+  } catch (error) {
+    console.error('Error adding template field:', error);
+    res.status(500).json({ error: 'Failed to add template field' });
+  }
+});
+
+// Update template field
+router.put('/:templateId/fields/:fieldId', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.templateId);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const field = await TemplateField.findById(req.params.fieldId);
+    if (!field || field.templateId !== template.id) {
+      return res.status(404).json({ error: 'Field not found' });
+    }
+
+    const updatedField = await field.update(req.body);
+    res.json(updatedField.toJSON());
+  } catch (error) {
+    console.error('Error updating template field:', error);
+    res.status(500).json({ error: 'Failed to update template field' });
+  }
+});
+
+// Delete template field
+router.delete('/:templateId/fields/:fieldId', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.templateId);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const field = await TemplateField.findById(req.params.fieldId);
+    if (!field || field.templateId !== template.id) {
+      return res.status(404).json({ error: 'Field not found' });
+    }
+
+    await field.delete();
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting template field:', error);
+    res.status(500).json({ error: 'Failed to delete template field' });
+  }
+});
+
+// Create envelope from template
+router.post('/:id/create-envelope', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    // Check if user has access (owner or public template)
+    if (template.userId !== req.user.id && !template.isPublic && !template.isPublished) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const envelopeData = {
+      ...req.body,
+      userId: req.user.id
+    };
+
+    const envelope = await template.createEnvelopeFromTemplate(envelopeData);
+    res.status(201).json(envelope.toJSON());
+  } catch (error) {
+    console.error('Error creating envelope from template:', error);
+    res.status(500).json({ error: error.message || 'Failed to create envelope from template' });
+  }
+});
+
+// Publish template
+router.post('/:id/publish', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await template.publish();
+    res.json({ message: 'Template published successfully' });
+  } catch (error) {
+    console.error('Error publishing template:', error);
+    res.status(500).json({ error: 'Failed to publish template' });
+  }
+});
+
+// Unpublish template
+router.post('/:id/unpublish', async (req, res) => {
+  try {
+    const template = await EnvelopeTemplate.findById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    if (template.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await template.unpublish();
+    res.json({ message: 'Template unpublished successfully' });
+  } catch (error) {
+    console.error('Error unpublishing template:', error);
+    res.status(500).json({ error: 'Failed to unpublish template' });
   }
 });
 

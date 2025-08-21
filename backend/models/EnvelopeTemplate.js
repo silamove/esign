@@ -9,11 +9,19 @@ class EnvelopeTemplate {
     this.name = data.name;
     this.description = data.description;
     this.category = data.category;
+    this.categoryId = data.category_id || data.categoryId;
     this.isPublic = data.is_public || data.isPublic;
+    this.isPublished = data.is_published || data.isPublished;
+    this.publishedAt = data.published_at || data.publishedAt;
     this.usageCount = data.usage_count || data.usageCount;
+    this.version = data.version || 1;
     this.templateData = data.template_data ? JSON.parse(data.template_data) : data.templateData;
     this.thumbnailPath = data.thumbnail_path || data.thumbnailPath;
     this.tags = data.tags ? data.tags.split(',') : [];
+    this.requiresAuthentication = data.requires_authentication || data.requiresAuthentication;
+    this.complianceFeatures = data.compliance_features ? JSON.parse(data.compliance_features) : {};
+    this.estimatedTime = data.estimated_time || data.estimatedTime || 5;
+    this.difficultyLevel = data.difficulty_level || data.difficultyLevel || 'easy';
     this.createdAt = data.created_at || data.createdAt;
     this.updatedAt = data.updated_at || data.updatedAt;
   }
@@ -24,17 +32,30 @@ class EnvelopeTemplate {
       name,
       description = '',
       category = 'general',
+      categoryId = null,
       isPublic = false,
+      isPublished = false,
       templateData: template,
-      tags = []
+      tags = [],
+      requiresAuthentication = false,
+      complianceFeatures = {},
+      estimatedTime = 5,
+      difficultyLevel = 'easy'
     } = templateData;
 
     const uuid = uuidv4();
     
     const result = await db.run(
-      `INSERT INTO envelope_templates (uuid, user_id, name, description, category, is_public, template_data, tags)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [uuid, userId, name, description, category, isPublic, JSON.stringify(template), tags.join(',')]
+      `INSERT INTO envelope_templates (
+        uuid, user_id, name, description, category, category_id, is_public, is_published,
+        template_data, tags, requires_authentication, compliance_features, 
+        estimated_time, difficulty_level
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid, userId, name, description, category, categoryId, isPublic, isPublished,
+        JSON.stringify(template), tags.join(','), requiresAuthentication, 
+        JSON.stringify(complianceFeatures), estimatedTime, difficultyLevel
+      ]
     );
     
     return this.findById(result.id);
@@ -189,9 +210,173 @@ class EnvelopeTemplate {
 
   static async getCategories() {
     const rows = await db.all(
-      'SELECT category, COUNT(*) as count FROM envelope_templates GROUP BY category ORDER BY count DESC'
+      `SELECT tc.*, COUNT(et.id) as template_count 
+       FROM template_categories tc
+       LEFT JOIN envelope_templates et ON tc.id = et.category_id
+       WHERE tc.is_active = 1
+       GROUP BY tc.id
+       ORDER BY tc.sort_order ASC, tc.display_name ASC`
     );
     return rows;
+  }
+
+  // Get template roles
+  async getRoles() {
+    const TemplateRole = require('./TemplateRole');
+    return await TemplateRole.findByTemplateId(this.id);
+  }
+
+  // Get template fields
+  async getFields() {
+    const TemplateField = require('./TemplateField');
+    return await TemplateField.findByTemplateId(this.id);
+  }
+
+  // Add a role to the template
+  async addRole(roleData) {
+    const TemplateRole = require('./TemplateRole');
+    return await TemplateRole.create({
+      ...roleData,
+      templateId: this.id
+    });
+  }
+
+  // Add a field to the template
+  async addField(fieldData) {
+    const TemplateField = require('./TemplateField');
+    return await TemplateField.create({
+      ...fieldData,
+      templateId: this.id
+    });
+  }
+
+  // Publish template (make it available for use)
+  async publish() {
+    await db.run(
+      `UPDATE envelope_templates 
+       SET is_published = 1, published_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ?`,
+      [this.id]
+    );
+    this.isPublished = true;
+    this.publishedAt = new Date().toISOString();
+  }
+
+  // Unpublish template
+  async unpublish() {
+    await db.run(
+      `UPDATE envelope_templates 
+       SET is_published = 0, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ?`,
+      [this.id]
+    );
+    this.isPublished = false;
+  }
+
+  // Create a new version of the template
+  async createVersion(versionData) {
+    const { versionName = '', changesSummary = '', createdBy } = versionData;
+    
+    // Get current roles and fields
+    const roles = await this.getRoles();
+    const fields = await this.getFields();
+    
+    // Get next version number
+    const lastVersion = await db.get(
+      'SELECT MAX(version_number) as max_version FROM template_versions WHERE template_id = ?',
+      [this.id]
+    );
+    const nextVersion = (lastVersion?.max_version || 0) + 1;
+    
+    // Create version record
+    const result = await db.run(
+      `INSERT INTO template_versions (
+        template_id, version_number, created_by, version_name, changes_summary,
+        template_data, roles_data, fields_data
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        this.id, nextVersion, createdBy, versionName, changesSummary,
+        JSON.stringify(this.templateData), JSON.stringify(roles), JSON.stringify(fields)
+      ]
+    );
+    
+    // Update template version number
+    await db.run(
+      'UPDATE envelope_templates SET version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [nextVersion, this.id]
+    );
+    
+    this.version = nextVersion;
+    return result.id;
+  }
+
+  // Get template versions
+  async getVersions() {
+    const rows = await db.all(
+      `SELECT tv.*, u.email as created_by_email
+       FROM template_versions tv
+       LEFT JOIN users u ON tv.created_by = u.id
+       WHERE tv.template_id = ?
+       ORDER BY tv.version_number DESC`,
+      [this.id]
+    );
+    return rows;
+  }
+
+  // Clone template with roles and fields
+  async clone(cloneData) {
+    const { userId, name, description } = cloneData;
+    
+    // Create cloned template
+    const clonedTemplate = await EnvelopeTemplate.create({
+      userId,
+      name: name || `${this.name} (Copy)`,
+      description: description || this.description,
+      category: this.category,
+      categoryId: this.categoryId,
+      isPublic: false,
+      templateData: this.templateData,
+      tags: [...this.tags, 'cloned'],
+      requiresAuthentication: this.requiresAuthentication,
+      complianceFeatures: this.complianceFeatures,
+      estimatedTime: this.estimatedTime,
+      difficultyLevel: this.difficultyLevel
+    });
+    
+    // Clone roles
+    const roles = await this.getRoles();
+    const roleMapping = new Map(); // Map original role ID to new role ID
+    
+    for (const role of roles) {
+      const clonedRole = await clonedTemplate.addRole({
+        roleName: role.roleName,
+        displayName: role.displayName,
+        description: role.description,
+        roleType: role.roleType,
+        routingOrder: role.routingOrder,
+        permissions: role.permissions,
+        authenticationMethod: role.authenticationMethod,
+        isRequired: role.isRequired,
+        customMessage: role.customMessage,
+        sendReminders: role.sendReminders,
+        language: role.language,
+        timezone: role.timezone,
+        accessRestrictions: role.accessRestrictions,
+        notificationSettings: role.notificationSettings
+      });
+      roleMapping.set(role.id, clonedRole.id);
+    }
+    
+    // Clone fields
+    const fields = await this.getFields();
+    for (const field of fields) {
+      const newRoleId = roleMapping.get(field.roleId);
+      if (newRoleId) {
+        await field.clone(clonedTemplate.id, newRoleId);
+      }
+    }
+    
+    return clonedTemplate;
   }
 
   async update(updates) {
@@ -251,76 +436,85 @@ class EnvelopeTemplate {
   async createEnvelopeFromTemplate(envelopeData) {
     const Envelope = require('./Envelope');
     
+    // Validate that all required roles are provided
+    const roles = await this.getRoles();
+    const requiredRoles = roles.filter(role => role.isRequired);
+    
+    if (!envelopeData.roleAssignments) {
+      throw new Error('Role assignments are required');
+    }
+    
+    for (const requiredRole of requiredRoles) {
+      const assignment = envelopeData.roleAssignments.find(a => a.roleId === requiredRole.id);
+      if (!assignment || !assignment.email) {
+        throw new Error(`Required role "${requiredRole.displayName}" must be assigned`);
+      }
+    }
+    
     // Create envelope with template data
     const envelope = await Envelope.create({
       userId: envelopeData.userId,
-      title: envelopeData.title || this.templateData.envelope.title,
-      subject: envelopeData.subject || this.templateData.envelope.subject,
-      message: envelopeData.message || this.templateData.envelope.message,
-      priority: this.templateData.envelope.priority,
-      reminderFrequency: this.templateData.envelope.reminderFrequency,
-      metadata: { templateId: this.id, templateUuid: this.uuid }
+      title: envelopeData.title || this.templateData?.envelope?.title || this.name,
+      subject: envelopeData.subject || this.templateData?.envelope?.subject || `Please sign: ${this.name}`,
+      message: envelopeData.message || this.templateData?.envelope?.message || 'Please review and sign the attached documents.',
+      priority: this.templateData?.envelope?.priority || 'medium',
+      reminderFrequency: this.templateData?.envelope?.reminderFrequency || 'daily',
+      isSequential: this.templateData?.envelope?.isSequential || false,
+      autoReminderEnabled: this.templateData?.envelope?.autoReminderEnabled || true,
+      complianceLevel: this.templateData?.envelope?.complianceLevel || 'standard',
+      metadata: { 
+        templateId: this.id, 
+        templateUuid: this.uuid,
+        templateVersion: this.version 
+      }
     });
 
-    // Add recipients from user input (mapping template placeholders to actual recipients)
-    if (envelopeData.recipients) {
-      for (let i = 0; i < envelopeData.recipients.length; i++) {
-        const recipientData = envelopeData.recipients[i];
-        const templateRecipient = this.templateData.recipients[i];
-        
-        if (templateRecipient) {
-          await envelope.addRecipient({
-            ...recipientData,
-            role: templateRecipient.role,
-            routingOrder: templateRecipient.routingOrder,
-            permissions: templateRecipient.permissions,
-            authenticationMethod: templateRecipient.authenticationMethod,
-            customMessage: templateRecipient.customMessage || recipientData.customMessage,
-            sendReminders: templateRecipient.sendReminders
-          });
-        }
-      }
+    // Add documents from user input
+    if (!envelopeData.documentIds || envelopeData.documentIds.length === 0) {
+      throw new Error('At least one document is required');
+    }
+    
+    for (let i = 0; i < envelopeData.documentIds.length; i++) {
+      const documentId = envelopeData.documentIds[i];
+      await envelope.addDocument(documentId, i + 1);
     }
 
-    // Add documents from user input
-    if (envelopeData.documentIds) {
-      for (let i = 0; i < envelopeData.documentIds.length; i++) {
-        const documentId = envelopeData.documentIds[i];
-        const templateDocument = this.templateData.documents[i];
-        
-        if (templateDocument) {
-          await envelope.addDocument(documentId, templateDocument.order);
-        }
-      }
+    // Add recipients based on role assignments
+    const recipientMapping = new Map(); // Map role ID to recipient ID
+    
+    for (const assignment of envelopeData.roleAssignments) {
+      const role = roles.find(r => r.id === assignment.roleId);
+      if (!role) continue;
+      
+      const recipientId = await role.assignToRecipient(envelope.id, {
+        email: assignment.email,
+        name: assignment.name || assignment.email,
+        customMessage: assignment.customMessage
+      });
+      
+      recipientMapping.set(role.id, recipientId);
     }
 
     // Add signature fields from template
-    if (this.templateData.signatureFields && envelopeData.documentIds && envelopeData.recipients) {
-      for (const field of this.templateData.signatureFields) {
-        const documentId = envelopeData.documentIds[field.documentReference - 1]; // Adjust for array index
-        const recipient = envelopeData.recipients[field.recipientIndex];
-        
-        if (documentId && recipient) {
-          await envelope.addSignatureField({
-            documentId,
-            recipientEmail: recipient.email,
-            fieldType: field.fieldType,
-            x: field.position.x,
-            y: field.position.y,
-            width: field.size.width,
-            height: field.size.height,
-            page: field.page,
-            required: field.required,
-            fieldName: field.fieldName,
-            defaultValue: field.defaultValue,
-            validationRules: field.validationRules
-          });
-        }
+    const fields = await this.getFields();
+    for (const field of fields) {
+      const recipientId = recipientMapping.get(field.roleId);
+      const documentId = envelopeData.documentIds[field.documentIndex];
+      
+      if (recipientId && documentId) {
+        await field.toEnvelopeField(envelope.id, documentId, recipientId);
       }
     }
 
     // Increment template usage
     await this.incrementUsage();
+    
+    // Track usage analytics
+    await db.run(
+      `INSERT INTO template_usage_analytics (template_id, user_id, envelope_id, action_type, metadata)
+       VALUES (?, ?, ?, 'use', ?)`,
+      [this.id, envelopeData.userId, envelope.id, JSON.stringify({ roleAssignments: envelopeData.roleAssignments })]
+    );
 
     return envelope;
   }
@@ -333,11 +527,19 @@ class EnvelopeTemplate {
       name: this.name,
       description: this.description,
       category: this.category,
+      categoryId: this.categoryId,
       isPublic: this.isPublic,
+      isPublished: this.isPublished,
+      publishedAt: this.publishedAt,
       usageCount: this.usageCount,
+      version: this.version,
       templateData: this.templateData,
       thumbnailPath: this.thumbnailPath,
       tags: this.tags,
+      requiresAuthentication: this.requiresAuthentication,
+      complianceFeatures: this.complianceFeatures,
+      estimatedTime: this.estimatedTime,
+      difficultyLevel: this.difficultyLevel,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
     };

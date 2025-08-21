@@ -16,6 +16,7 @@ const legalSignatureRoutes = require('./routes/legalSignatures');
 const analyticsRoutes = require('./routes/analytics');
 const envelopeRoutes = require('./routes/envelopes');
 const templateRoutes = require('./routes/templates');
+const emailRoutes = require('./routes/email');
 const securityRoutes = require('./routes/security');
 
 // Import middleware
@@ -142,6 +143,7 @@ app.use('/api/signatures', authMiddleware, legalSignatureRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/envelopes', authMiddleware, envelopeRoutes);
 app.use('/api/templates', authMiddleware, templateRoutes);
+app.use('/api/email', authMiddleware, emailRoutes);
 app.use('/api/security', authMiddleware, securityRoutes);
 
 // Serve frontend for any non-API routes in production
@@ -162,6 +164,14 @@ async function startServer() {
     
     // Run migrations after database is initialized
     await runMigrations();
+    
+    // Initialize email service
+    const emailService = require('./services/emailService');
+    try {
+      await emailService.initialize();
+    } catch (error) {
+      console.warn('⚠️ Email service initialization failed, continuing without email:', error.message);
+    }
     
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);

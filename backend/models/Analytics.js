@@ -9,16 +9,15 @@ class Analytics {
                 VALUES (?, ?, ?, ?, ?)
             `;
             
-            const stmt = db.prepare(query);
-            const result = stmt.run(
+            const result = await db.run(query, [
                 userId,
                 eventType,
                 JSON.stringify(eventData),
                 ipAddress,
                 userAgent
-            );
+            ]);
             
-            return { success: true, id: result.lastInsertRowid };
+            return { success: true, id: result.lastID };
         } catch (error) {
             console.error('Error tracking user event:', error);
             return { success: false, error: error.message };
@@ -33,17 +32,16 @@ class Analytics {
                 VALUES (?, ?, ?, ?, ?, ?)
             `;
             
-            const stmt = db.prepare(query);
-            const result = stmt.run(
+            const result = await db.run(query, [
                 documentId,
                 userId,
                 action,
                 JSON.stringify(metadata),
                 ipAddress,
                 sessionId
-            );
+            ]);
             
-            return { success: true, id: result.lastInsertRowid };
+            return { success: true, id: result.lastID };
         } catch (error) {
             console.error('Error tracking document action:', error);
             return { success: false, error: error.message };
@@ -59,7 +57,7 @@ class Analytics {
                 FROM documents 
                 WHERE user_id = ?
             `;
-            const totalDocs = db.prepare(totalDocsQuery).get(userId);
+            const totalDocs = await db.get(totalDocsQuery, [userId]);
 
             // Documents this month
             const thisMonthQuery = `
@@ -68,7 +66,7 @@ class Analytics {
                 WHERE user_id = ? 
                 AND created_at >= date('now', 'start of month')
             `;
-            const thisMonth = db.prepare(thisMonthQuery).get(userId);
+            const thisMonth = await db.get(thisMonthQuery, [userId]);
 
             // Pending signatures (documents with fields but no signatures)
             const pendingQuery = `
@@ -78,7 +76,7 @@ class Analytics {
                 LEFT JOIN document_analytics da ON d.id = da.document_id AND da.action = 'signed'
                 WHERE d.user_id = ? AND da.id IS NULL
             `;
-            const pending = db.prepare(pendingQuery).get(userId);
+            const pending = await db.get(pendingQuery, [userId]);
 
             // Completion rate (documents with signatures / documents with fields)
             const completionQuery = `
@@ -90,14 +88,14 @@ class Analytics {
                 LEFT JOIN document_analytics da ON d.id = da.document_id AND da.action = 'signed'
                 WHERE d.user_id = ?
             `;
-            const completion = db.prepare(completionQuery).get(userId);
+            const completion = await db.get(completionQuery, [userId]);
 
             // Recent activity
             const activityQuery = `
                 SELECT 
                     da.action,
                     da.timestamp,
-                    d.title as document_title,
+                    d.original_name as document_title,
                     d.id as document_id
                 FROM document_analytics da
                 INNER JOIN documents d ON da.document_id = d.id
@@ -105,7 +103,7 @@ class Analytics {
                 ORDER BY da.timestamp DESC
                 LIMIT 10
             `;
-            const recentActivity = db.prepare(activityQuery).all(userId);
+            const recentActivity = await db.all(activityQuery, [userId]);
 
             // Format activity for display
             const formattedActivity = recentActivity.map(activity => ({
@@ -142,7 +140,7 @@ class Analytics {
         try {
             // Total users
             const totalUsersQuery = `SELECT COUNT(*) as total_users FROM users`;
-            const totalUsers = db.prepare(totalUsersQuery).get();
+            const totalUsers = await db.get(totalUsersQuery);
 
             // Active users (last 30 days)
             const activeUsersQuery = `
@@ -150,11 +148,11 @@ class Analytics {
                 FROM user_analytics
                 WHERE timestamp >= datetime('now', '-30 days')
             `;
-            const activeUsers = db.prepare(activeUsersQuery).get();
+            const activeUsers = await db.get(activeUsersQuery);
 
             // Total documents
             const totalDocsQuery = `SELECT COUNT(*) as total_documents FROM documents`;
-            const totalDocs = db.prepare(totalDocsQuery).get();
+            const totalDocs = await db.get(totalDocsQuery);
 
             // Documents created this month
             const docsThisMonthQuery = `
@@ -162,7 +160,7 @@ class Analytics {
                 FROM documents
                 WHERE created_at >= date('now', 'start of month')
             `;
-            const docsThisMonth = db.prepare(docsThisMonthQuery).get();
+            const docsThisMonth = await db.get(docsThisMonthQuery);
 
             // Signatures this month
             const signaturesThisMonthQuery = `
@@ -170,7 +168,7 @@ class Analytics {
                 FROM document_analytics
                 WHERE action = 'signed' AND timestamp >= date('now', 'start of month')
             `;
-            const signaturesThisMonth = db.prepare(signaturesThisMonthQuery).get();
+            const signaturesThisMonth = await db.get(signaturesThisMonthQuery);
 
             // Daily activity for last 30 days
             const dailyActivityQuery = `
@@ -183,7 +181,7 @@ class Analytics {
                 GROUP BY DATE(timestamp)
                 ORDER BY date
             `;
-            const dailyActivity = db.prepare(dailyActivityQuery).all();
+            const dailyActivity = await db.all(dailyActivityQuery);
 
             return {
                 success: true,
@@ -219,7 +217,7 @@ class Analytics {
                 ORDER BY position_y, position_x
             `;
             
-            const widgets = db.prepare(query).all(userId);
+            const widgets = await db.all(query, [userId]);
             
             return {
                 success: true,

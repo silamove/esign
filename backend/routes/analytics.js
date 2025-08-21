@@ -187,7 +187,7 @@ router.get('/system', authMiddleware, async (req, res) => {
 });
 
 // Get user activity summary
-router.get('/user/activity', auth, async (req, res) => {
+router.get('/user/activity', authMiddleware, async (req, res) => {
     try {
         const { days = 30 } = req.query;
         const daysNum = Math.min(Math.max(parseInt(days), 1), 365); // Limit between 1-365 days
@@ -233,7 +233,7 @@ router.get('/user/activity', auth, async (req, res) => {
 });
 
 // Get document performance metrics
-router.get('/documents/performance', auth, async (req, res) => {
+router.get('/documents/performance', authMiddleware, async (req, res) => {
     try {
         const query = `
             SELECT 

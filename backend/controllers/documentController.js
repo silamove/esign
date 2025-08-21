@@ -498,7 +498,7 @@ class DocumentController {
         }
       }
 
-      const viewUrl = `http://localhost:3001/api/documents/view/${tempToken}`;
+      const viewUrl = `http://localhost:4000/api/documents/view/${tempToken}`;
 
       res.json({
         success: true,

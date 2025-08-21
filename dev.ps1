@@ -17,7 +17,7 @@ if (!(Test-Path "frontend\node_modules")) {
 
 # Start development servers
 Write-Host "🌟 Starting development servers..." -ForegroundColor Green
-Write-Host "Backend: http://localhost:3001" -ForegroundColor Yellow
+Write-Host "Backend: http://localhost:4000" -ForegroundColor Yellow
 Write-Host "Frontend: http://localhost:3000" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Press Ctrl+C to stop both servers" -ForegroundColor Yellow

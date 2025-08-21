@@ -13,6 +13,8 @@ const documentRoutes = require('./routes/documents');
 const userRoutes = require('./routes/users');
 const signatureRoutes = require('./routes/signatures');
 const analyticsRoutes = require('./routes/analytics');
+const envelopeRoutes = require('./routes/envelopes');
+const templateRoutes = require('./routes/templates');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -21,9 +23,12 @@ const { authMiddleware } = require('./middleware/auth');
 // Import database
 const db = require('./models/database');
 
+const app = express();
+const PORT = process.env.PORT || 4000;
+
 // Run database migrations
 const fs = require('fs');
-const runMigrations = () => {
+const runMigrations = async () => {
   try {
     const migrationsDir = path.join(__dirname, 'models', 'migrations');
     if (fs.existsSync(migrationsDir)) {
@@ -36,7 +41,19 @@ const runMigrations = () => {
         const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
         
         console.log(`Running migration: ${file}`);
-        db.exec(migrationSQL);
+        
+        // Split SQL into individual statements and execute them
+        const statements = migrationSQL
+          .split(';')
+          .map(stmt => stmt.trim())
+          .filter(stmt => stmt.length > 0);
+        
+        for (const statement of statements) {
+          if (statement.trim()) {
+            await db.run(statement);
+          }
+        }
+        
         console.log(`✓ Migration completed: ${file}`);
       }
     }
@@ -120,6 +137,8 @@ app.use('/api/documents', authMiddleware, documentRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/signatures', authMiddleware, signatureRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
+app.use('/api/envelopes', authMiddleware, envelopeRoutes);
+app.use('/api/templates', authMiddleware, templateRoutes);
 
 // Serve frontend for any non-API routes in production
 if (process.env.NODE_ENV === 'production') {
@@ -136,6 +155,9 @@ async function startServer() {
   try {
     await db.initialize();
     console.log('✅ Database initialized successfully');
+    
+    // Run migrations after database is initialized
+    await runMigrations();
     
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
@@ -163,9 +185,6 @@ process.on('SIGINT', async () => {
   await db.close();
   process.exit(0);
 });
-
-// Run migrations on startup
-runMigrations();
 
 startServer();
 

@@ -5,6 +5,7 @@ const fs = require('fs').promises;
 const { body, param, validationResult } = require('express-validator');
 const documentController = require('../controllers/documentController');
 const { authenticateFileAccess } = require('../middleware/fileAuth');
+const Analytics = require('../models/Analytics');
 
 const router = express.Router();
 

@@ -1,4 +1,5 @@
 const Document = require('../models/Document');
+const Analytics = require('../models/Analytics');
 const path = require('path');
 const fs = require('fs').promises;
 const { PDFDocument, rgb } = require('pdf-lib');
@@ -79,6 +80,20 @@ class DocumentController {
         totalPages
       }, req.ip, req.get('User-Agent'));
 
+      // Track analytics
+      await Analytics.trackDocumentAction(
+        document.id,
+        req.user.id,
+        'created',
+        {
+          originalName: req.file.originalname,
+          fileSize: req.file.size,
+          totalPages
+        },
+        req.ip,
+        req.sessionID
+      );
+
       res.status(201).json({
         success: true,
         data: document.toJSON(),
@@ -115,6 +130,19 @@ class DocumentController {
 
       // Get document fields
       const fields = await document.getFields();
+
+      // Track document view
+      await Analytics.trackDocumentAction(
+        document.id,
+        req.user.id,
+        'viewed',
+        {
+          documentTitle: document.title || document.originalName,
+          hasFields: fields.length > 0
+        },
+        req.ip,
+        req.sessionID
+      );
 
       res.json({
         success: true,

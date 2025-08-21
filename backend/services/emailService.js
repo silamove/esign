@@ -12,42 +12,22 @@ class EmailService {
 
     try {
       if (process.env.NODE_ENV === 'development') {
-        // Check if MailHog is configured (preferred for local development)
-        if (process.env.USE_MAILHOG === 'true') {
-          this.transporter = nodemailer.createTransporter({
-            host: process.env.SMTP_HOST || 'localhost',
-            port: parseInt(process.env.SMTP_PORT) || 1025,
-            secure: false,
-            ignoreTLS: true,
-            auth: false
-          });
+        // Use local development SMTP server
+        this.transporter = nodemailer.createTransport({
+          host: 'localhost',
+          port: 1025,
+          secure: false,
+          ignoreTLS: true,
+          auth: false
+        });
 
-          console.log('📧 Development Email Service: MailHog SMTP configured');
-          console.log(`   - SMTP: ${process.env.SMTP_HOST || 'localhost'}:${process.env.SMTP_PORT || 1025}`);
-          console.log(`   - Web UI: http://localhost:${process.env.MAILHOG_WEB_PORT || 8025}`);
-          console.log('   - Start MailHog: docker run -d -p 1025:1025 -p 8025:8025 mailhog/mailhog');
-        } else {
-          // Fallback to Ethereal Email
-          this.testAccount = await nodemailer.createTestAccount();
-          
-          this.transporter = nodemailer.createTransporter({
-            host: 'smtp.ethereal.email',
-            port: 587,
-            secure: false,
-            auth: {
-              user: this.testAccount.user,
-              pass: this.testAccount.pass,
-            },
-          });
-
-          console.log('📧 Development Email Service: Ethereal Email initialized');
-          console.log(`📨 Ethereal Email UI: https://ethereal.email/login`);
-          console.log(`👤 Test Email User: ${this.testAccount.user}`);
-          console.log(`🔑 Test Email Pass: ${this.testAccount.pass}`);
-        }
+        console.log('📧 Development Email Service: Local SMTP Server');
+        console.log('   - SMTP: localhost:1025');
+        console.log('   - Web UI: http://localhost:8025');
+        console.log('   - Start server: npm run smtp-server');
       } else {
         // Production email configuration
-        this.transporter = nodemailer.createTransporter({
+        this.transporter = nodemailer.createTransport({
           host: process.env.SMTP_HOST || 'smtp.gmail.com',
           port: process.env.SMTP_PORT || 587,
           secure: process.env.SMTP_SECURE === 'true',

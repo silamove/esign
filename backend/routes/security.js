@@ -3,10 +3,8 @@ const router = express.Router();
 const db = require('../models/database');
 const DeviceFingerprintingService = require('../services/DeviceFingerprintingService');
 const GeolocationVerificationService = require('../services/GeolocationVerificationService');
-const { authMiddleware } = require('../middleware/auth');
 
-// Apply authentication middleware to all routes
-router.use(authMiddleware);
+// Note: authMiddleware is applied in server.js, no need to apply it again here
 
 // Get user's device fingerprints and trust scores
 router.get('/devices', async (req, res) => {

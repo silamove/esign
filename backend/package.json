@@ -8,7 +8,9 @@
     "dev": "nodemon server.js",
     "test": "jest",
     "lint": "eslint .",
-    "seed": "node seeders/seed-users.js"
+    "seed": "node seeders/seed-users.js",
+    "smtp-server": "node dev-tools/smtp-server.js",
+    "dev:full": "concurrently \"npm run smtp-server\" \"npm run dev\""
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -31,10 +33,13 @@
     "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "concurrently": "^9.2.0",
     "eslint": "^9.17.0",
     "jest": "^30.0.5",
     "mailhog": "^4.16.0",
+    "mailparser": "^3.7.4",
     "nodemon": "^3.1.8",
+    "smtp-server": "^3.14.0",
     "supertest": "^7.1.4"
   },
   "engines": {

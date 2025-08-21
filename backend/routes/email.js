@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const emailService = require('../services/emailService');
-const auth = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/auth');
 
 // Get email service status and test account info (development only)
-router.get('/status', auth, async (req, res) => {
+router.get('/status', authMiddleware, async (req, res) => {
   try {
     const serviceInfo = emailService.getServiceInfo();
     res.json(serviceInfo);
@@ -15,7 +15,7 @@ router.get('/status', auth, async (req, res) => {
 });
 
 // Initialize email service (for manual initialization)
-router.post('/initialize', auth, async (req, res) => {
+router.post('/initialize', authMiddleware, async (req, res) => {
   try {
     await emailService.initialize();
     const serviceInfo = emailService.getServiceInfo();
@@ -30,7 +30,7 @@ router.post('/initialize', auth, async (req, res) => {
 });
 
 // Send test email (development only)
-router.post('/test', auth, async (req, res) => {
+router.post('/test', authMiddleware, async (req, res) => {
   try {
     if (process.env.NODE_ENV !== 'development') {
       return res.status(403).json({ error: 'Test emails only available in development' });
@@ -91,7 +91,7 @@ router.post('/test', auth, async (req, res) => {
 });
 
 // Send envelope invitation email
-router.post('/envelope/invitation', auth, async (req, res) => {
+router.post('/envelope/invitation', authMiddleware, async (req, res) => {
   try {
     const { 
       recipientEmail, 
@@ -147,7 +147,7 @@ router.post('/envelope/invitation', auth, async (req, res) => {
 });
 
 // Send envelope reminder email
-router.post('/envelope/reminder', auth, async (req, res) => {
+router.post('/envelope/reminder', authMiddleware, async (req, res) => {
   try {
     const { 
       recipientEmail, 
@@ -206,7 +206,7 @@ router.post('/envelope/reminder', auth, async (req, res) => {
 });
 
 // Send security alert email
-router.post('/security/alert', auth, async (req, res) => {
+router.post('/security/alert', authMiddleware, async (req, res) => {
   try {
     const { alertType, details } = req.body;
 

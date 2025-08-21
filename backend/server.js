@@ -29,42 +29,6 @@ const db = require('./models/database');
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Run database migrations
-const fs = require('fs');
-const runMigrations = async () => {
-  try {
-    const migrationsDir = path.join(__dirname, 'models', 'migrations');
-    if (fs.existsSync(migrationsDir)) {
-      const migrationFiles = fs.readdirSync(migrationsDir)
-        .filter(file => file.endsWith('.sql'))
-        .sort();
-      
-      for (const file of migrationFiles) {
-        const migrationPath = path.join(migrationsDir, file);
-        const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
-        
-        console.log(`Running migration: ${file}`);
-        
-        // Split SQL into individual statements and execute them
-        const statements = migrationSQL
-          .split(';')
-          .map(stmt => stmt.trim())
-          .filter(stmt => stmt.length > 0);
-        
-        for (const statement of statements) {
-          if (statement.trim()) {
-            await db.run(statement);
-          }
-        }
-        
-        console.log(`✓ Migration completed: ${file}`);
-      }
-    }
-  } catch (error) {
-    console.error('Migration error:', error);
-  }
-};
-
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -139,7 +103,7 @@ app.get('/api/documents/view/:token', async (req, res, next) => {
 app.use('/api/documents', authMiddleware, documentRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/signatures', authMiddleware, signatureRoutes);
-app.use('/api/signatures', authMiddleware, legalSignatureRoutes);
+app.use('/api/legal-signatures', authMiddleware, legalSignatureRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/envelopes', authMiddleware, envelopeRoutes);
 app.use('/api/templates', authMiddleware, templateRoutes);
@@ -161,9 +125,6 @@ async function startServer() {
   try {
     await db.initialize();
     console.log('✅ Database initialized successfully');
-    
-    // Run migrations after database is initialized
-    await runMigrations();
     
     // Initialize email service
     const emailService = require('./services/emailService');

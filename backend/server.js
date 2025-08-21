@@ -12,9 +12,11 @@ const authRoutes = require('./routes/auth');
 const documentRoutes = require('./routes/documents');
 const userRoutes = require('./routes/users');
 const signatureRoutes = require('./routes/signatures');
+const legalSignatureRoutes = require('./routes/legalSignatures');
 const analyticsRoutes = require('./routes/analytics');
 const envelopeRoutes = require('./routes/envelopes');
 const templateRoutes = require('./routes/templates');
+const securityRoutes = require('./routes/security');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -136,9 +138,11 @@ app.get('/api/documents/view/:token', async (req, res, next) => {
 app.use('/api/documents', authMiddleware, documentRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/signatures', authMiddleware, signatureRoutes);
+app.use('/api/signatures', authMiddleware, legalSignatureRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/envelopes', authMiddleware, envelopeRoutes);
 app.use('/api/templates', authMiddleware, templateRoutes);
+app.use('/api/security', authMiddleware, securityRoutes);
 
 // Serve frontend for any non-API routes in production
 if (process.env.NODE_ENV === 'production') {

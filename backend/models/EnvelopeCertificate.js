@@ -1,14 +1,23 @@
 const { v4: uuidv4 } = require('uuid');
-const fs = require('fs').promises;
+const fs = require('fs');
+const fsp = require('fs').promises;
 const path = require('path');
 const db = require('./database');
+const isPostgres = (process.env.DATABASE_TYPE === 'postgresql');
 
 class EnvelopeCertificate {
   constructor(data) {
     this.id = data.id;
     this.envelopeId = data.envelope_id || data.envelopeId;
     this.certificateUuid = data.certificate_uuid || data.certificateUuid;
-    this.certificateData = data.certificate_data ? JSON.parse(data.certificate_data) : data.certificateData;
+    // Be robust across PG JSONB (object) and TEXT (string)
+    if (data.certificate_data === null || data.certificate_data === undefined) {
+      this.certificateData = data.certificateData;
+    } else if (typeof data.certificate_data === 'string') {
+      try { this.certificateData = JSON.parse(data.certificate_data || '{}'); } catch { this.certificateData = {}; }
+    } else {
+      this.certificateData = data.certificate_data; // assume object from PG JSONB
+    }
     this.pdfPath = data.pdf_path || data.pdfPath;
     this.blockchainHash = data.blockchain_hash || data.blockchainHash;
     this.createdAt = data.created_at || data.createdAt;
@@ -162,11 +171,11 @@ class EnvelopeCertificate {
     // Create certificate record
     const result = await db.run(
       `INSERT INTO envelope_certificates (envelope_id, certificate_uuid, certificate_data)
-       VALUES (?, ?, ?)`,
+       VALUES (?, ?, ?)` + (isPostgres ? ' RETURNING id' : ''),
       [envelopeId, certificateUuid, JSON.stringify(certificateData)]
     );
 
-    return this.findById(result.id);
+    return this.findById(result.lastID || result.id);
   }
 
   static async findById(id) {
@@ -189,7 +198,7 @@ class EnvelopeCertificate {
     const certificatesDir = path.join(process.cwd(), 'uploads', 'certificates');
     
     // Ensure certificates directory exists
-    await fs.mkdir(certificatesDir, { recursive: true });
+    await fsp.mkdir(certificatesDir, { recursive: true });
 
     const pdfPath = path.join(certificatesDir, `certificate_${this.certificateUuid}.pdf`);
     

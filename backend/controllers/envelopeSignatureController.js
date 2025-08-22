@@ -153,7 +153,9 @@ class EnvelopeSignatureController {
         [envelope.id]
       );
 
-      if (remaining.cnt === 0) {
+      const remainingCount = Number(remaining?.cnt ?? remaining?.count ?? 0);
+
+      if (remainingCount === 0) {
         await db.run(`UPDATE envelopes SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?`, [envelope.id]);
       } else {
         const next = await db.get(

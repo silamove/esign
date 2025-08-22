@@ -255,14 +255,20 @@ class Envelope {
     } = fieldData;
 
     if (isPostgres) {
+      // Resolve recipient_id explicitly to avoid SQL placeholder complexity
+      let recipientId = null;
+      if (recipientEmail) {
+        const rec = await db.get('SELECT id FROM recipients WHERE envelope_id = ? AND email = ?', [this.id, recipientEmail]);
+        recipientId = rec?.id || null;
+      }
+
       const result = await db.run(
         `INSERT INTO fields (envelope_id, document_id, recipient_id, type, name, label, x, y, width, height, page, required, default_value, validation_rules)
-         VALUES (?, ?, (SELECT id FROM recipients WHERE envelope_id = ? AND email = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           this.id,
           documentId,
-          this.id,
-          recipientEmail,
+          recipientId,
           fieldType,
           fieldName,
           fieldName,

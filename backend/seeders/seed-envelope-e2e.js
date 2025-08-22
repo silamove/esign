@@ -10,6 +10,7 @@ const Envelope = require('../models/Envelope');
 const Document = require('../models/Document');
 const EnvelopeSignatureController = require('../controllers/envelopeSignatureController');
 const { generateSampleDocuments } = require('../scripts/generate-sample-documents');
+const EnvelopeCertificate = require('../models/EnvelopeCertificate');
 
 async function ensureDemoUser() {
   // Try to find demo user; if not present, create a simple one
@@ -81,6 +82,18 @@ async function seedEnvelopeFlow() {
 
     // Attach document to envelope (use consolidated envelope_id linkage)
     await db.run('UPDATE documents SET envelope_id = ? WHERE id = ?', [env.id, doc.id]);
+    // Also register the association in envelope_documents for compatibility/reporting
+    try {
+      await db.run(
+        `INSERT INTO envelope_documents (envelope_id, document_id, document_order)
+         SELECT ?, ?, 1 WHERE NOT EXISTS (
+           SELECT 1 FROM envelope_documents WHERE envelope_id = ? AND document_id = ?
+         )`,
+        [env.id, doc.id, env.id, doc.id]
+      );
+    } catch (e) {
+      console.warn('Could not insert into envelope_documents (optional):', e.message);
+    }
 
     // Add one signer
     const recResult = await env.addRecipient({
@@ -111,6 +124,13 @@ async function seedEnvelopeFlow() {
       validationRules: {}
     });
 
+    // Send envelope to set status and log audit before signing
+    try {
+      await env.send();
+    } catch (e) {
+      console.warn('Envelope send failed or skipped:', e.message);
+    }
+
     // Perform a test signing via controller to create cryptographic evidence
     const req = {
       params: { uuid: env.uuid, token },
@@ -138,14 +158,31 @@ async function seedEnvelopeFlow() {
     const evCount = await db.get('SELECT COUNT(*)::int AS c FROM signature_evidences WHERE envelope_id = ?', [env.id]);
     const auditCount = await db.get("SELECT COUNT(*)::int AS c FROM audit_events WHERE envelope_id = ? AND event_type = 'recipient_signed'", [env.id]);
 
+    // If completed, generate certificate
+    const envAfter = await Envelope.findById(env.id);
+    let certInfo = {};
+    if (envAfter?.status === 'completed') {
+      try {
+        const cert = await EnvelopeCertificate.generateCertificate(env.id);
+        const pdfPath = await cert.generatePDF();
+        certInfo = { certificateUuid: cert.certificateUuid, pdfPath };
+      } catch (e) {
+        console.warn('Certificate generation skipped:', e.message);
+      }
+    }
+
     console.log('\nSeed complete. Summary:');
-    console.log(' - Envelope ID:', env.id, 'UUID:', env.uuid);
+    console.log(' - Envelope ID:', env.id, 'UUID:', env.uuid, 'Status:', envAfter?.status);
     console.log(' - Document ID:', doc.id, 'Filename:', doc.filename);
     console.log(' - Recipient:', 'signer1@example.com');
     console.log(' - Access Token:', token);
     console.log(' - Signing URL path: /api/envelopes/' + env.uuid + '/recipients/' + token + '/sign');
     console.log(' - signature_evidences rows for envelope:', evCount?.c);
     console.log(" - audit_events 'recipient_signed' rows:", auditCount?.c);
+    if (certInfo.certificateUuid) {
+      console.log(' - Certificate UUID:', certInfo.certificateUuid);
+      console.log(' - Certificate PDF:', certInfo.pdfPath);
+    }
 
     await db.close();
     return 0;

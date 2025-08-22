@@ -9,12 +9,20 @@ class Document {
     this.userId = data.user_id || data.userId;
     this.envelopeId = data.envelope_id || data.envelopeId; // new linkage in PG
     this.originalName = data.original_name || data.originalName;
-    this.filename = data.filename;
+    // Prefer unified filename, fallback to legacy file_name
+    this.filename = data.filename || data.file_name;
     this.fileSize = data.file_size || data.fileSize;
     this.mimeType = data.mime_type || data.mimeType;
     this.status = data.status;
     this.totalPages = data.total_pages || data.totalPages;
-    this.metadata = data.metadata ? JSON.parse(data.metadata) : {};
+    // Safely handle JSONB (object) vs TEXT (string)
+    if (data.metadata === null || data.metadata === undefined) {
+      this.metadata = {};
+    } else if (typeof data.metadata === 'string') {
+      try { this.metadata = JSON.parse(data.metadata || '{}'); } catch { this.metadata = {}; }
+    } else {
+      this.metadata = data.metadata; // assume object from PG JSONB
+    }
     this.createdAt = data.created_at || data.createdAt;
     this.updatedAt = data.updated_at || data.updatedAt;
   }

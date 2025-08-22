@@ -15,7 +15,14 @@ class Envelope {
     this.priority = data.priority; // low, medium, high, urgent
     this.expirationDate = data.expiration_date || data.expirationDate;
     this.reminderFrequency = data.reminder_frequency || data.reminderFrequency;
-    this.metadata = data.metadata ? JSON.parse(data.metadata) : {};
+    // Make metadata parsing robust across SQLite TEXT and Postgres JSONB
+    if (data.metadata === null || data.metadata === undefined) {
+      this.metadata = {};
+    } else if (typeof data.metadata === 'string') {
+      try { this.metadata = JSON.parse(data.metadata || '{}'); } catch { this.metadata = {}; }
+    } else {
+      this.metadata = data.metadata; // assume object from PG JSONB
+    }
     this.createdAt = data.created_at || data.createdAt;
     this.updatedAt = data.updated_at || data.updatedAt;
     this.sentAt = data.sent_at || data.sentAt;
@@ -37,13 +44,14 @@ class Envelope {
 
     const uuid = uuidv4();
     
+    // Ensure INSERT returns the new id in Postgres
     const result = await db.run(
       `INSERT INTO envelopes (uuid, user_id, organization_id, title, subject, message, priority, expiration_date, reminder_frequency, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` + (isPostgres ? ' RETURNING id' : ''),
       [uuid, userId, organizationId, title, subject, message, priority, expirationDate, reminderFrequency, JSON.stringify(metadata)]
     );
     
-    return this.findById(result.id);
+    return this.findById(result.lastID || result.id);
   }
 
   static async findById(id) {

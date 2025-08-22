@@ -1,0 +1,280 @@
+services:
+  postgres:
+    # Optional local DB container (disabled by default). Use with: docker compose --profile db up
+    profiles: ["db"]
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: sign
+      POSTGRES_PASSWORD: signpass
+      POSTGRES_DB: sign
+      # Optional: tune locale & encoding
+      # LANG: en_US.utf8
+      # POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    # Do not expose to host; internal only
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,size=8m
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    ulimits:
+      nproc: 256
+      nofile: 8192
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_CLIENT: pg
+      # Point to host machine's Postgres
+      PGHOST: host.docker.internal
+      PGPORT: 5432
+      PGDATABASE: sign
+      PGUSER: sign
+      PGPASSWORD: signpass
+      # E2E cryptographic signing + trusted timestamping
+      HSM_PROVIDER: internal_dev
+      TSA_PROVIDER: sigstore_rfc3161
+      TSA_URL: http://tsa:3000/api/v1/timestamp
+      TSA_USE_DOCKER: "false"
+      OPENSSL_PATH: openssl
+      TSA_DEV_FALLBACK: "true"
+      # Optional: pinning and policy
+      # TSA_POLICY_OID: "1.2.3.4.5.777"
+      # TSA_REQUIRE_CERTCHAIN: "true"
+    depends_on:
+      # Removed DB container dependency; ensure your local Postgres is running
+      tsa:
+        condition: service_healthy
+    # No direct host port; route via nginx
+    # ports:
+    #   - "3001:3001"
+    command: sh -c "npm start"
+    healthcheck:
+      test: [
+        "CMD",
+        "node",
+        "-e",
+        "require('http').request({host:'localhost',port:process.env.PORT||3001,path:'/api/health'}).on('response',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1)).end()"
+      ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    ulimits:
+      nproc: 256
+      nofile: 4096
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    networks:
+      - internal
+    volumes:
+      - uploads:/app/uploads
+
+  tsa:
+    image: ghcr.io/sigstore/timestamp-server:latest
+    # For dev, this will use an in-memory signer. For production, mount a cert chain
+    # and configure a KMS/Tink signer as per sigstore/timestamp-authority docs.
+    command: ["serve", "--port", "3000"]
+    # Do not expose to host; internal only (backend calls it directly)
+    # ports:
+    #   - "3000:3000"
+    # volumes:
+    #   - ./tsa/chain.crt.pem:/chain.crt.pem:ro
+    # environment:
+    #   - TIMESTAMP_SIGNER=tink
+    #   - CERTIFICATE_CHAIN_PATH=/chain.crt.pem
+    #   - TINK_KEY_RESOURCE=gcp-kms://projects/..../cryptoKeys/<key>
+    #   - TINK_KEYSET_PATH=/secrets/enc-keyset.cfg
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/timestamp/certchain >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    ulimits:
+      nproc: 256
+      nofile: 2048
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    networks:
+      - internal
+
+  # Hardened TLS reverse proxy with security headers
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      backend:
+        condition: service_healthy
+      devcerts:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_cache:/var/cache/nginx
+      - nginx_certs:/etc/nginx/certs
+      - ./nginx/entrypoint.sh:/docker-entrypoint.d/99-tls-entrypoint.sh:ro
+    environment:
+      TLS_MODE: ${TLS_MODE:-auto}
+      TLS_DOMAIN: ${TLS_DOMAIN:-localhost}
+      TLS_CERT_DIR: /etc/nginx/certs
+      TLS_P12_PATH: /etc/nginx/certs/server.p12
+      TLS_P12_PASSWORD: ${TLS_P12_PASSWORD:-}
+      SIGNING_CERT_B64: ${SIGNING_CERT_B64:-}
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /run:rw,noexec,nosuid,nodev,size=16m
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    networks:
+      - internal
+      - edge
+
+  # One-shot (kept running) container to generate dev CA and localhost certs inside a Docker volume
+  devcerts:
+    image: bitnami/openssl:latest
+    entrypoint: ["sh", "-c"]
+    command: |
+      set -e
+      cd /work
+      if [ ! -f server.crt ] || [ ! -f server.key ]; then
+        echo "Generating Dev CA and localhost cert..."
+        printf '%s\n' \
+          '[v3_ca]' \
+          'subjectKeyIdentifier=hash' \
+          'authorityKeyIdentifier=keyid:always,issuer' \
+          'basicConstraints=critical,CA:TRUE,pathlen=1' \
+          'keyUsage=critical,keyCertSign,cRLSign' \
+          > ca-ext.cnf
+        printf '%s\n' \
+          '[v3_req]' \
+          'basicConstraints = CA:FALSE' \
+          'keyUsage = digitalSignature, keyEncipherment' \
+          'extendedKeyUsage = serverAuth' \
+          'subjectAltName = @alt_names' \
+          '[alt_names]' \
+          'DNS.1 = localhost' \
+          'IP.1 = 127.0.0.1' \
+          'IP.2 = ::1' \
+          > server-ext.cnf
+        openssl genrsa -out dev-ca.key 2048
+        openssl req -x509 -new -key dev-ca.key -sha256 -days 1095 -subj '/CN=OnDottedLine Dev CA' -out dev-ca.crt -extfile ca-ext.cnf -extensions v3_ca
+        openssl genrsa -out server.key 2048
+        openssl req -new -key server.key -subj '/CN=localhost' -out server.csr
+        openssl x509 -req -in server.csr -CA dev-ca.crt -CAkey dev-ca.key -CAcreateserial -out server.crt -days 365 -sha256 -extfile server-ext.cnf -extensions v3_req
+        rm -f server.csr ca-ext.cnf server-ext.cnf dev-ca.srl
+      else
+        echo "Existing certs found in volume."
+      fi
+      # Keep container running so nginx can depend on it
+      tail -f /dev/null
+    volumes:
+      - nginx_certs:/work
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    network_mode: "none"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    restart: unless-stopped
+
+  # Optional: cosign CLI for countersigning/verification automation
+  cosign:
+    image: ghcr.io/sigstore/cosign/cosign:latest
+    entrypoint: ["sleep", "infinity"]
+    # Mount a workspace dir to persist cosign keys if you generate them
+    volumes:
+      - ./cosign:/workspace
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    ulimits:
+      nproc: 128
+      nofile: 1024
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    networks:
+      - internal
+
+volumes:
+  pgdata:
+  nginx_cache:
+  uploads:
+  nginx_certs:
+
+networks:
+  internal:
+    driver: bridge
+  edge:
+    driver: bridge

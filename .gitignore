@@ -27,6 +27,16 @@ database/*.db
 database/*.sqlite
 database/*.sqlite3
 
+# Database dumps (migration exports)
+database/migration/*.pgdump
+database/migration/*.dump
+# Additional dump formats
+database/migration/*.pgdmp
+database/migration/*.sql
+database/migration/*.sql.gz
+database/migration/*.tar
+database/migration/*.backup
+
 # Uploads (user files)
 uploads/*
 !uploads/.gitkeep

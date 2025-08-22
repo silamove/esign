@@ -3,7 +3,7 @@
 FROM node:20-alpine
 
 # Install system deps (openssl for RFC3161 TSQ, CA certs for TLS, bash for scripts)
-RUN apk add --no-cache bash openssl ca-certificates \
+RUN apk add --no-cache bash openssl ca-certificates cosign \
     && update-ca-certificates
 
 WORKDIR /app

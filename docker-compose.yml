@@ -1,8 +1,7 @@
 services:
   postgres:
-    # Optional local DB container (disabled by default). Use with: docker compose --profile db up
-    profiles: ["db"]
-    image: postgres:15-alpine
+    image: postgres:17-alpine
+    user: "0:0"
     environment:
       POSTGRES_USER: sign
       POSTGRES_PASSWORD: signpass
@@ -10,9 +9,9 @@ services:
       # Optional: tune locale & encoding
       # LANG: en_US.utf8
       # POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
-    # Do not expose to host; internal only
-    # ports:
-    #   - "5432:5432"
+    # Expose to host for development (psql/pgAdmin). Remove in production.
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,9 +22,6 @@ services:
       start_period: 20s
     security_opt:
       - no-new-privileges:true
-    read_only: true
-    cap_drop:
-      - ALL
     tmpfs:
       - /var/run/postgresql:rw,noexec,nosuid,nodev,size=8m
       - /tmp:rw,noexec,nosuid,nodev,size=16m
@@ -50,26 +46,42 @@ services:
       NODE_ENV: production
       PORT: 3001
       DB_CLIENT: pg
-      # Point to host machine's Postgres
-      PGHOST: host.docker.internal
+      # Use the internal Postgres service by default
+      PGHOST: postgres
       PGPORT: 5432
       PGDATABASE: sign
       PGUSER: sign
       PGPASSWORD: signpass
       # E2E cryptographic signing + trusted timestamping
-      HSM_PROVIDER: internal_dev
-      TSA_PROVIDER: sigstore_rfc3161
-      TSA_URL: http://tsa:3000/api/v1/timestamp
-      TSA_USE_DOCKER: "false"
-      OPENSSL_PATH: openssl
-      TSA_DEV_FALLBACK: "true"
-      # Optional: pinning and policy
-      # TSA_POLICY_OID: "1.2.3.4.5.777"
-      # TSA_REQUIRE_CERTCHAIN: "true"
+      HSM_PROVIDER: sigstore_cosign
+      COSIGN_MODE: keyless
+      COSIGN_FULCIO_URL: https://fulcio.sigstore.dev
+      COSIGN_REKOR_URL: https://rekor.sigstore.dev
+      COSIGN_EXPERIMENTAL: "true"
+      # Optional OIDC identity token for non-interactive signing (GitHub Actions, etc.)
+      # COSIGN_IDENTITY_TOKEN: ${COSIGN_IDENTITY_TOKEN:-}
+      # Optional: password if using key mode
+      # COSIGN_PASSWORD: ${COSIGN_PASSWORD:-}
+      # Optional: KMS URI if using kms mode
+      # COSIGN_KMS_URI: ${COSIGN_KMS_URI:-}
+      DATABASE_TYPE: postgresql
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: sign
+      DATABASE_USER: sign
+      DATABASE_PASSWORD: signpass
+      DATABASE_SSL: "false"
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      SMTP_USER: dev
+      SMTP_PASS: dev
+      SMTP_FROM: "OnDottedLine <noreply@ondottedline.local>"
     depends_on:
-      # Removed DB container dependency; ensure your local Postgres is running
-      tsa:
+      postgres:
         condition: service_healthy
+      mailhog:
+        condition: service_started
     # No direct host port; route via nginx
     # ports:
     #   - "3001:3001"
@@ -147,6 +159,8 @@ services:
     restart: unless-stopped
     networks:
       - internal
+    profiles:
+      - tsa
 
   # Hardened TLS reverse proxy with security headers
   nginx:
@@ -191,48 +205,36 @@ services:
 
   # One-shot (kept running) container to generate dev CA and localhost certs inside a Docker volume
   devcerts:
-    image: bitnami/openssl:latest
-    entrypoint: ["sh", "-c"]
-    command: |
-      set -e
-      cd /work
+    image: alpine:3.20
+    entrypoint: ["/bin/sh", "-ec"]
+    command: >-
+      apk add --no-cache openssl;
+      cd /work;
       if [ ! -f server.crt ] || [ ! -f server.key ]; then
-        echo "Generating Dev CA and localhost cert..."
-        printf '%s\n' \
-          '[v3_ca]' \
-          'subjectKeyIdentifier=hash' \
-          'authorityKeyIdentifier=keyid:always,issuer' \
-          'basicConstraints=critical,CA:TRUE,pathlen=1' \
-          'keyUsage=critical,keyCertSign,cRLSign' \
-          > ca-ext.cnf
-        printf '%s\n' \
-          '[v3_req]' \
-          'basicConstraints = CA:FALSE' \
-          'keyUsage = digitalSignature, keyEncipherment' \
-          'extendedKeyUsage = serverAuth' \
-          'subjectAltName = @alt_names' \
-          '[alt_names]' \
-          'DNS.1 = localhost' \
-          'IP.1 = 127.0.0.1' \
-          'IP.2 = ::1' \
-          > server-ext.cnf
-        openssl genrsa -out dev-ca.key 2048
-        openssl req -x509 -new -key dev-ca.key -sha256 -days 1095 -subj '/CN=OnDottedLine Dev CA' -out dev-ca.crt -extfile ca-ext.cnf -extensions v3_ca
-        openssl genrsa -out server.key 2048
-        openssl req -new -key server.key -subj '/CN=localhost' -out server.csr
-        openssl x509 -req -in server.csr -CA dev-ca.crt -CAkey dev-ca.key -CAcreateserial -out server.crt -days 365 -sha256 -extfile server-ext.cnf -extensions v3_req
-        rm -f server.csr ca-ext.cnf server-ext.cnf dev-ca.srl
+        echo "Generating localhost self-signed cert...";
+        openssl req -x509 -newkey rsa:2048 -sha256 -days 365 \
+          -nodes -subj "/CN=localhost" \
+          -keyout server.key -out server.crt \
+          -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1" \
+          -addext "extendedKeyUsage=serverAuth" \
+          -addext "keyUsage=digitalSignature,keyEncipherment";
       else
-        echo "Existing certs found in volume."
-      fi
-      # Keep container running so nginx can depend on it
-      tail -f /dev/null
+        echo "Existing certs found in volume.";
+      fi;
+      exec tail -f /dev/null
     volumes:
       - nginx_certs:/work
     security_opt:
       - no-new-privileges:true
     read_only: false
-    network_mode: "none"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f /work/server.crt ] && [ -f /work/server.key ] || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     logging:
       driver: json-file
       options:
@@ -263,6 +265,23 @@ services:
         max-file: "2"
     cap_drop:
       - ALL
+    restart: unless-stopped
+    networks:
+      - internal
+    profiles:
+      - security-tools
+
+  # Development SMTP server (MailHog) for catching emails
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
     networks:
       - internal

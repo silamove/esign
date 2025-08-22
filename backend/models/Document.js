@@ -1,11 +1,13 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('./database');
+const isPostgres = (process.env.DATABASE_TYPE === 'postgresql');
 
 class Document {
   constructor(data) {
     this.id = data.id;
     this.uuid = data.uuid;
     this.userId = data.user_id || data.userId;
+    this.envelopeId = data.envelope_id || data.envelopeId; // new linkage in PG
     this.originalName = data.original_name || data.originalName;
     this.filename = data.filename;
     this.fileSize = data.file_size || data.fileSize;
@@ -20,6 +22,7 @@ class Document {
   static async create(documentData) {
     const {
       userId,
+      envelopeId = null,
       originalName,
       filename,
       fileSize,
@@ -29,14 +32,24 @@ class Document {
     } = documentData;
 
     const uuid = uuidv4();
-    
+
+    if (isPostgres) {
+      // In Postgres we can persist envelope_id if provided
+      const result = await db.run(
+        `INSERT INTO documents (uuid, user_id, envelope_id, original_name, filename, file_size, mime_type, total_pages, metadata)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [uuid, userId, envelopeId, originalName, filename, fileSize, mimeType, totalPages, JSON.stringify(metadata)]
+      );
+      return this.findById(result.lastID || result.id);
+    }
+
+    // SQLite legacy schema (no envelope_id)
     const result = await db.run(
       `INSERT INTO documents (uuid, user_id, original_name, filename, file_size, mime_type, total_pages, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [uuid, userId, originalName, filename, fileSize, mimeType, totalPages, JSON.stringify(metadata)]
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      , [uuid, userId, originalName, filename, fileSize, mimeType, totalPages, JSON.stringify(metadata)]
     );
-    
-    return this.findById(result.id);
+    return this.findById(result.lastID || result.id);
   }
 
   static async findById(id) {
@@ -66,12 +79,13 @@ class Document {
   }
 
   async update(updates) {
-    const allowedFields = ['originalName', 'status', 'totalPages', 'metadata'];
+    const allowedFields = ['originalName', 'status', 'totalPages', 'metadata', 'envelopeId'];
     const fieldMapping = {
       'originalName': 'original_name',
       'status': 'status', 
       'totalPages': 'total_pages',
-      'metadata': 'metadata'
+      'metadata': 'metadata',
+      'envelopeId': 'envelope_id'
     };
     
     const fields = [];
@@ -103,10 +117,41 @@ class Document {
   }
 
   async delete() {
+    // Note: cascading deletes are handled at the envelope/fields level in PG; here we just remove the document
     await db.run('DELETE FROM documents WHERE id = ?', [this.id]);
   }
 
   async getFields() {
+    if (isPostgres) {
+      let query = `
+        SELECT f.*, r.email AS recipient_email
+        FROM fields f
+        LEFT JOIN recipients r ON r.id = f.recipient_id
+        WHERE f.document_id = ?
+        ORDER BY f.page ASC NULLS LAST, f.y ASC NULLS LAST, f.x ASC NULLS LAST`;
+      const rows = await db.all(query, [this.id]);
+      return rows.map(row => ({
+        id: row.id,
+        envelope_id: row.envelope_id,
+        document_id: row.document_id,
+        recipient_id: row.recipient_id,
+        recipient_email: row.recipient_email,
+        field_type: row.type,
+        name: row.name,
+        label: row.label,
+        x: row.x, y: row.y, width: row.width, height: row.height,
+        page: row.page,
+        required: row.required,
+        default_value: row.default_value,
+        validation_rules: typeof row.validation_rules === 'string' ? JSON.parse(row.validation_rules || '{}') : (row.validation_rules || {}),
+        value: row.value,
+        signed_at: row.signed_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      }));
+    }
+
+    // SQLite legacy document_fields
     const rows = await db.all(
       'SELECT * FROM document_fields WHERE document_id = ? ORDER BY created_at ASC',
       [this.id]
@@ -118,6 +163,71 @@ class Document {
   }
 
   async addField(fieldData) {
+    if (isPostgres) {
+      // Support both old and new shapes
+      const fieldType = fieldData.fieldType || fieldData.type || (fieldData.data && fieldData.data.type) || 'text';
+      const name = fieldData.fieldName || fieldData.name || (fieldData.data && (fieldData.data.name || fieldData.data.label)) || null;
+      const label = fieldData.label || name || null;
+      const x = fieldData.x ?? fieldData.left ?? (fieldData.data && fieldData.data.x);
+      const y = fieldData.y ?? fieldData.top ?? (fieldData.data && fieldData.data.y);
+      const width = fieldData.width ?? (fieldData.data && fieldData.data.width);
+      const height = fieldData.height ?? (fieldData.data && fieldData.data.height);
+      const page = fieldData.page ?? (fieldData.data && fieldData.data.page) ?? null;
+      const required = (fieldData.required !== undefined) ? fieldData.required : (fieldData.data ? fieldData.data.required !== false : true);
+      const defaultValue = fieldData.defaultValue ?? (fieldData.data && fieldData.data.defaultValue) ?? null;
+      const defaultValueNormalized = (defaultValue && typeof defaultValue === 'object') ? JSON.stringify(defaultValue) : defaultValue;
+      const validationRules = fieldData.validationRules || (fieldData.data && fieldData.data.validationRules) || {};
+      const recipientEmail = fieldData.recipientEmail || fieldData.recipient_email || null;
+      const explicitEnvelopeId = fieldData.envelopeId || fieldData.envelope_id || null;
+
+      // Resolve envelope_id: prefer explicit -> document.envelopeId -> unique association via envelope_documents
+      let envelopeId = explicitEnvelopeId || this.envelopeId || null;
+      if (!envelopeId) {
+        const candidates = await db.all('SELECT DISTINCT envelope_id FROM envelope_documents WHERE document_id = ?', [this.id]);
+        if (candidates.length === 1) envelopeId = candidates[0].envelope_id;
+      }
+      if (!envelopeId) {
+        throw new Error('Envelope ID is required to add a field to a document in PostgreSQL. Pass envelopeId to addField or associate the document to a single envelope.');
+      }
+
+      const result = await db.run(
+        `INSERT INTO fields (envelope_id, document_id, recipient_id, type, name, label, x, y, width, height, page, required, default_value, validation_rules)
+         VALUES (?, ?, ${recipientEmail ? '(SELECT id FROM recipients WHERE envelope_id = ? AND email = ?)' : 'NULL'}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+        recipientEmail
+          ? [
+              envelopeId,
+              this.id,
+              envelopeId, recipientEmail,
+              fieldType,
+              name, label,
+              x, y, width, height,
+              page,
+              required,
+              defaultValueNormalized,
+              JSON.stringify(validationRules)
+            ]
+          : [
+              envelopeId,
+              this.id,
+              fieldType,
+              name, label,
+              x, y, width, height,
+              page,
+              required,
+              defaultValueNormalized,
+              JSON.stringify(validationRules)
+            ]
+      );
+
+      // Update document status hint
+      if (this.status === 'draft') {
+        await this.update({ status: 'in_progress' });
+      }
+
+      return result;
+    }
+
+    // SQLite legacy path
     const { fieldType, data, x, y, width, height, page } = fieldData;
     
     const result = await db.run(
@@ -135,6 +245,10 @@ class Document {
   }
 
   async removeField(fieldId) {
+    if (isPostgres) {
+      await db.run('DELETE FROM fields WHERE id = ? AND document_id = ?', [fieldId, this.id]);
+      return;
+    }
     await db.run('DELETE FROM document_fields WHERE id = ? AND document_id = ?', [fieldId, this.id]);
   }
 
@@ -156,7 +270,7 @@ class Document {
       [this.id, sharedBy, sharedWith, permissions, expiresAt, accessToken]
     );
     
-    return { id: result.id, accessToken };
+    return { id: result.id || result.lastID, accessToken };
   }
 
   async getAuditLogs() {
@@ -184,6 +298,7 @@ class Document {
       id: this.id,
       uuid: this.uuid,
       userId: this.userId,
+      envelopeId: this.envelopeId,
       originalName: this.originalName,
       filename: this.filename,
       fileSize: this.fileSize,

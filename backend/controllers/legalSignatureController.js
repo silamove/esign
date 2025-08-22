@@ -4,13 +4,8 @@ const db = require('../models/database');
 
 class LegalSignatureController {
   /**
-   * Create a legally binding digital signature
-   * This implements the full legal framework including:
-   * - Document integrity verification (SHA-256 hashing)
-   * - Cryptographic signing with PKI
-   * - Timestamping and audit trails
-   * - Identity verification and authentication
-   * - Non-repudiation mechanisms
+   * DEPRECATED: Single-document legal signature flow.
+   * Use POST /api/envelopes/:uuid/recipients/:token/sign for envelope-centric signing.
    */
   async createLegalSignature(req, res, next) {
     try {
@@ -122,7 +117,8 @@ class LegalSignatureController {
           legallyBinding: true,
           complianceLevel: 'esign_compliant'
         },
-        message: 'Legally binding signature created successfully'
+        message: 'Legally binding signature created successfully',
+        deprecation: 'This endpoint is deprecated. Use the envelope signing endpoint: POST /api/envelopes/:uuid/recipients/:token/sign'
       });
 
     } catch (error) {
@@ -265,7 +261,9 @@ class LegalSignatureController {
       complianceFramework: 'ESIGN Act 2000 / UETA Compliant',
       certificateGeneratedAt: new Date().toISOString(),
       legalStatus: 'Legally Binding',
-      verificationUrl: `${process.env.FRONTEND_URL}/verify/${signature.signature_uuid}`
+      verificationUrl: `${process.env.FRONTEND_URL}/verify/${signature.signature_uuid}`,
+      // Added legal validity statement for clarity and compliance
+      legalValidityStatement: 'The combination of clear intent, strong cryptography, and a comprehensive, tamper-evident audit trail directly meets the requirements of the ESIGN Act and provides a legally valid signature that is as strong, if not stronger, than a traditional ink signature.'
     };
 
     // Store certificate
@@ -426,7 +424,12 @@ class LegalSignatureController {
          .text(`Status: ${certificate.legalStatus}`, 70, yPos + 15)
          .text(`Verification URL: ${certificate.verificationUrl}`, 70, yPos + 30);
 
-      yPos += 65;
+      // Added legal validity statement under compliance
+      doc.fontSize(9)
+         .fillColor('#374151')
+         .text(certificate.legalValidityStatement || 'The combination of clear intent, strong cryptography, and a comprehensive, tamper-evident audit trail directly meets the requirements of the ESIGN Act and provides a legally valid signature that is as strong, if not stronger, than a traditional ink signature.', 70, yPos + 45, { width: 470 });
+
+      yPos += 95;
 
       // Certificate generation info
       doc.fontSize(8)

@@ -1,50 +1,78 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('./database');
+const isPostgres = (process.env.DATABASE_TYPE === 'postgresql');
 
 class EnvelopeTemplate {
   constructor(data) {
     this.id = data.id;
-    this.uuid = data.uuid;
-    this.userId = data.user_id || data.userId;
+    this.uuid = data.uuid; // legacy/SQLite only
+    this.userId = data.user_id || data.userId || data.creator_id; // PG uses creator_id
     this.name = data.name;
     this.description = data.description;
     this.category = data.category;
-    this.categoryId = data.category_id || data.categoryId;
+    this.categoryId = data.category_id || data.categoryId; // legacy only
     this.isPublic = data.is_public || data.isPublic;
-    this.isPublished = data.is_published || data.isPublished;
+    this.isPublished = data.is_published || data.isPublished; // legacy only
     this.publishedAt = data.published_at || data.publishedAt;
     this.usageCount = data.usage_count || data.usageCount;
     this.version = data.version || 1;
-    this.templateData = data.template_data ? JSON.parse(data.template_data) : data.templateData;
+    this.templateData = data.template_data ? (typeof data.template_data === 'string' ? JSON.parse(data.template_data) : data.template_data) : data.templateData;
     this.thumbnailPath = data.thumbnail_path || data.thumbnailPath;
-    this.tags = data.tags ? data.tags.split(',') : [];
+    // tags: SQLite stores comma-separated, Postgres is text[]
+    if (Array.isArray(data.tags)) {
+      this.tags = data.tags;
+    } else {
+      this.tags = data.tags ? String(data.tags).split(',') : [];
+    }
     this.requiresAuthentication = data.requires_authentication || data.requiresAuthentication;
-    this.complianceFeatures = data.compliance_features ? JSON.parse(data.compliance_features) : {};
+    this.complianceFeatures = data.compliance_features ? (typeof data.compliance_features === 'string' ? JSON.parse(data.compliance_features) : data.compliance_features) : {};
     this.estimatedTime = data.estimated_time || data.estimatedTime || 5;
     this.difficultyLevel = data.difficulty_level || data.difficultyLevel || 'easy';
     this.createdAt = data.created_at || data.createdAt;
     this.updatedAt = data.updated_at || data.updatedAt;
+    // PG-specific
+    this.type = data.type; // 'standard' | 'smart'
+    this.organizationId = data.organization_id || data.organizationId;
+    this.metadata = data.metadata ? (typeof data.metadata === 'string' ? JSON.parse(data.metadata) : data.metadata) : {};
+    this.rolesJson = data.roles ? (typeof data.roles === 'string' ? JSON.parse(data.roles) : data.roles) : undefined;
   }
 
   static async create(templateData) {
     const {
       userId,
+      organizationId = null,
       name,
       description = '',
       category = 'general',
-      categoryId = null,
+      categoryId = null, // legacy only
       isPublic = false,
-      isPublished = false,
+      isPublished = false, // legacy only
       templateData: template,
       tags = [],
       requiresAuthentication = false,
       complianceFeatures = {},
       estimatedTime = 5,
-      difficultyLevel = 'easy'
+      difficultyLevel = 'easy',
+      type = 'standard',
+      metadata = {},
     } = templateData;
 
+    if (isPostgres) {
+      const { query, params } = {
+        query: `INSERT INTO templates (name, description, type, category, is_public, is_active, creator_id, organization_id, template_data, tags, thumbnail_path, usage_count, metadata, roles)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id`,
+        params: [
+          name, description, type, category, isPublic, true, userId, organizationId,
+          JSON.stringify(template || {}), Array.isArray(tags) ? `{${tags.map(t => '"' + t.replace(/"/g,'\"') + '"').join(',')}}` : null, null, 0,
+          JSON.stringify(metadata || {}), JSON.stringify([])
+        ]
+      };
+      const res = await db.query(query, params);
+      return this.findById(res.rows?.[0]?.id || res.lastID || res.id);
+    }
+
     const uuid = uuidv4();
-    
     const result = await db.run(
       `INSERT INTO envelope_templates (
         uuid, user_id, name, description, category, category_id, is_public, is_published,
@@ -57,7 +85,6 @@ class EnvelopeTemplate {
         JSON.stringify(complianceFeatures), estimatedTime, difficultyLevel
       ]
     );
-    
     return this.findById(result.id);
   }
 
@@ -80,19 +107,29 @@ class EnvelopeTemplate {
 
     // Get envelope recipients (anonymize for template)
     const recipients = await db.all(
-      `SELECT role, routing_order, permissions, authentication_method, custom_message, send_reminders
-       FROM envelope_recipients 
-       WHERE envelope_id = ? 
-       ORDER BY routing_order ASC`,
+      isPostgres
+        ? `SELECT role, routing_order, permissions, authentication_method, custom_message, send_reminders
+             FROM recipients 
+             WHERE envelope_id = ? 
+             ORDER BY routing_order ASC`
+        : `SELECT role, routing_order, permissions, authentication_method, custom_message, send_reminders
+             FROM envelope_recipients 
+             WHERE envelope_id = ? 
+             ORDER BY routing_order ASC`,
       [envelopeId]
     );
 
     // Get signature fields (without actual signatures)
     const signatureFields = await db.all(
-      `SELECT document_id, field_type, x, y, width, height, page, required, field_name, default_value, validation_rules
-       FROM envelope_signatures 
-       WHERE envelope_id = ?
-       ORDER BY page ASC, y ASC, x ASC`,
+      isPostgres
+        ? `SELECT document_id, type AS field_type, x, y, width, height, page, required, name AS field_name, default_value, validation_rules
+             FROM fields 
+             WHERE envelope_id = ?
+             ORDER BY page ASC NULLS LAST, y ASC NULLS LAST, x ASC NULLS LAST`
+        : `SELECT document_id, field_type, x, y, width, height, page, required, field_name, default_value, validation_rules
+             FROM envelope_signatures 
+             WHERE envelope_id = ?
+             ORDER BY page ASC, y ASC, x ASC`,
       [envelopeId]
     );
 
@@ -120,27 +157,26 @@ class EnvelopeTemplate {
         placeholder: `Recipient ${index + 1}`,
         role: recipient.role,
         routingOrder: recipient.routing_order,
-        permissions: JSON.parse(recipient.permissions || '{}'),
+        permissions: typeof recipient.permissions === 'string' ? JSON.parse(recipient.permissions || '{}') : (recipient.permissions || {}),
         authenticationMethod: recipient.authentication_method,
         customMessage: recipient.custom_message,
         sendReminders: recipient.send_reminders
       })),
       signatureFields: signatureFields.map(field => ({
         documentReference: field.document_id,
-        recipientIndex: recipients.findIndex(r => r.routing_order === field.routing_order),
-        fieldType: field.field_type,
         position: { x: field.x, y: field.y },
         size: { width: field.width, height: field.height },
         page: field.page,
         required: field.required,
         fieldName: field.field_name,
         defaultValue: field.default_value,
-        validationRules: JSON.parse(field.validation_rules || '{}')
+        validationRules: typeof field.validation_rules === 'string' ? JSON.parse(field.validation_rules || '{}') : (field.validation_rules || {})
       }))
     };
 
     return this.create({
-      userId: envelope.user_id,
+      userId: envelope.user_id || envelope.creator_id,
+      organizationId: envelope.organization_id,
       name: templateName,
       description,
       category: 'custom',
@@ -151,16 +187,32 @@ class EnvelopeTemplate {
   }
 
   static async findById(id) {
+    if (isPostgres) {
+      const row = await db.get('SELECT * FROM templates WHERE id = ?', [id]);
+      return row ? new EnvelopeTemplate(row) : null;
+    }
     const row = await db.get('SELECT * FROM envelope_templates WHERE id = ?', [id]);
     return row ? new EnvelopeTemplate(row) : null;
   }
 
   static async findByUuid(uuid) {
+    if (isPostgres) {
+      // templates do not have uuid in PG; support lookup via metadata.uuid if present
+      const row = await db.get("SELECT * FROM templates WHERE (metadata->>'uuid') = ?", [uuid]);
+      return row ? new EnvelopeTemplate(row) : null;
+    }
     const row = await db.get('SELECT * FROM envelope_templates WHERE uuid = ?', [uuid]);
     return row ? new EnvelopeTemplate(row) : null;
   }
 
   static async findByUserId(userId, limit = 50, offset = 0) {
+    if (isPostgres) {
+      const rows = await db.all(
+        'SELECT * FROM templates WHERE creator_id = ? AND is_active = true ORDER BY updated_at DESC LIMIT ? OFFSET ?',
+        [userId, limit, offset]
+      );
+      return rows.map(row => new EnvelopeTemplate(row));
+    }
     const rows = await db.all(
       'SELECT * FROM envelope_templates WHERE user_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?',
       [userId, limit, offset]
@@ -169,22 +221,50 @@ class EnvelopeTemplate {
   }
 
   static async findPublic(category = null, limit = 50, offset = 0) {
+    if (isPostgres) {
+      let query = 'SELECT * FROM templates WHERE is_public = true AND is_active = true';
+      const params = [];
+      if (category) {
+        query += ' AND category = ?';
+        params.push(category);
+      }
+      query += ' ORDER BY usage_count DESC, updated_at DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      const rows = await db.all(query, params);
+      return rows.map(row => new EnvelopeTemplate(row));
+    }
+
     let query = 'SELECT * FROM envelope_templates WHERE is_public = 1';
     let params = [];
-
     if (category) {
       query += ' AND category = ?';
       params.push(category);
     }
-
     query += ' ORDER BY usage_count DESC, updated_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
-
     const rows = await db.all(query, params);
     return rows.map(row => new EnvelopeTemplate(row));
   }
 
   static async search(searchTerm, userId = null, includePublic = true, limit = 50) {
+    if (isPostgres) {
+      let query = `SELECT * FROM templates WHERE (name ILIKE ? OR description ILIKE ?)`;
+      const params = [`%${searchTerm}%`, `%${searchTerm}%`];
+      if (userId && includePublic) {
+        query += ' AND (creator_id = ? OR is_public = true)';
+        params.push(userId);
+      } else if (userId) {
+        query += ' AND creator_id = ?';
+        params.push(userId);
+      } else if (includePublic) {
+        query += ' AND is_public = true';
+      }
+      query += ' ORDER BY usage_count DESC, updated_at DESC LIMIT ?';
+      params.push(limit);
+      const rows = await db.all(query, params);
+      return rows.map(row => new EnvelopeTemplate(row));
+    }
+
     let query = `
       SELECT * FROM envelope_templates 
       WHERE (name LIKE ? OR description LIKE ? OR tags LIKE ?)
@@ -209,6 +289,16 @@ class EnvelopeTemplate {
   }
 
   static async getCategories() {
+    if (isPostgres) {
+      const rows = await db.all(
+        `SELECT category AS display_name, COUNT(id) AS template_count
+         FROM templates WHERE is_active = true AND category IS NOT NULL
+         GROUP BY category
+         ORDER BY display_name ASC`
+      );
+      return rows;
+    }
+
     const rows = await db.all(
       `SELECT tc.*, COUNT(et.id) as template_count 
        FROM template_categories tc
@@ -222,6 +312,28 @@ class EnvelopeTemplate {
 
   // Get template roles
   async getRoles() {
+    if (isPostgres) {
+      // roles are stored as JSONB on templates
+      const roles = Array.isArray(this.rolesJson) ? this.rolesJson : [];
+      // Normalize to a simple structure resembling legacy roles
+      return roles.map((r, idx) => ({
+        id: r.id || idx + 1,
+        roleName: r.name || r.role_name || `role_${idx + 1}`,
+        displayName: r.display_name || r.displayName || r.name || `Role ${idx + 1}`,
+        description: r.description || '',
+        roleType: r.role_type || r.roleType || 'signer',
+        routingOrder: r.signing_order || r.routing_order || idx + 1,
+        permissions: r.permissions || {},
+        authenticationMethod: r.authentication_method || 'email',
+        isRequired: (r.is_required !== undefined) ? r.is_required : true,
+        customMessage: r.custom_message || '',
+        sendReminders: (r.send_reminders !== undefined) ? r.send_reminders : true,
+        language: r.language || 'en',
+        timezone: r.timezone || 'UTC',
+        accessRestrictions: r.access_restrictions || {},
+        notificationSettings: r.notification_settings || {}
+      }));
+    }
     const TemplateRole = require('./TemplateRole');
     return await TemplateRole.findByTemplateId(this.id);
   }
@@ -234,6 +346,30 @@ class EnvelopeTemplate {
 
   // Add a role to the template
   async addRole(roleData) {
+    if (isPostgres) {
+      const current = await db.get('SELECT roles FROM templates WHERE id = ?', [this.id]);
+      const roles = (current && current.roles) ? (typeof current.roles === 'string' ? JSON.parse(current.roles) : current.roles) : [];
+      const newRole = {
+        id: roleData.id || (roles.length ? Math.max(...roles.map(r => r.id || 0)) + 1 : 1),
+        name: roleData.roleName || roleData.name,
+        display_name: roleData.displayName || roleData.display_name,
+        description: roleData.description || '',
+        role_type: roleData.roleType || 'signer',
+        routing_order: roleData.routingOrder || 1,
+        permissions: roleData.permissions || {},
+        authentication_method: roleData.authenticationMethod || 'email',
+        is_required: (roleData.isRequired !== undefined) ? roleData.isRequired : true,
+        custom_message: roleData.customMessage || '',
+        send_reminders: (roleData.sendReminders !== undefined) ? roleData.sendReminders : true,
+        language: roleData.language || 'en',
+        timezone: roleData.timezone || 'UTC',
+        access_restrictions: roleData.accessRestrictions || {},
+        notification_settings: roleData.notificationSettings || {}
+      };
+      roles.push(newRole);
+      await db.run('UPDATE templates SET roles = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [JSON.stringify(roles), this.id]);
+      return newRole;
+    }
     const TemplateRole = require('./TemplateRole');
     return await TemplateRole.create({
       ...roleData,
@@ -252,6 +388,15 @@ class EnvelopeTemplate {
 
   // Publish template (make it available for use)
   async publish() {
+    if (isPostgres) {
+      await db.run(
+        `UPDATE templates 
+         SET is_active = true, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`,
+        [this.id]
+      );
+      return;
+    }
     await db.run(
       `UPDATE envelope_templates 
        SET is_published = 1, published_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
@@ -264,6 +409,15 @@ class EnvelopeTemplate {
 
   // Unpublish template
   async unpublish() {
+    if (isPostgres) {
+      await db.run(
+        `UPDATE templates 
+         SET is_active = false, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`,
+        [this.id]
+      );
+      return;
+    }
     await db.run(
       `UPDATE envelope_templates 
        SET is_published = 0, updated_at = CURRENT_TIMESTAMP 
@@ -296,17 +450,22 @@ class EnvelopeTemplate {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         this.id, nextVersion, createdBy, versionName, changesSummary,
-        JSON.stringify(this.templateData), JSON.stringify(roles), JSON.stringify(fields)
+        JSON.stringify(this.templateData || {}), JSON.stringify(roles), JSON.stringify(fields)
       ]
     );
     
     // Update template version number
-    await db.run(
-      'UPDATE envelope_templates SET version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [nextVersion, this.id]
-    );
+    if (!isPostgres) {
+      await db.run(
+        'UPDATE envelope_templates SET version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [nextVersion, this.id]
+      );
+      this.version = nextVersion;
+    } else {
+      await db.run('UPDATE templates SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [this.id]);
+      this.version = nextVersion;
+    }
     
-    this.version = nextVersion;
     return result.id;
   }
 
@@ -330,6 +489,7 @@ class EnvelopeTemplate {
     // Create cloned template
     const clonedTemplate = await EnvelopeTemplate.create({
       userId,
+      organizationId: this.organizationId,
       name: name || `${this.name} (Copy)`,
       description: description || this.description,
       category: this.category,
@@ -340,40 +500,42 @@ class EnvelopeTemplate {
       requiresAuthentication: this.requiresAuthentication,
       complianceFeatures: this.complianceFeatures,
       estimatedTime: this.estimatedTime,
-      difficultyLevel: this.difficultyLevel
+      difficultyLevel: this.difficultyLevel,
+      type: this.type || 'standard',
+      metadata: this.metadata || {}
     });
     
     // Clone roles
     const roles = await this.getRoles();
-    const roleMapping = new Map(); // Map original role ID to new role ID
+    const roleMapping = new Map(); // Map original role ID/Name to new role identifier
     
     for (const role of roles) {
       const clonedRole = await clonedTemplate.addRole({
-        roleName: role.roleName,
-        displayName: role.displayName,
+        roleName: role.roleName || role.name,
+        displayName: role.displayName || role.display_name,
         description: role.description,
-        roleType: role.roleType,
-        routingOrder: role.routingOrder,
+        roleType: role.roleType || role.role_type,
+        routingOrder: role.routingOrder || role.routing_order,
         permissions: role.permissions,
-        authenticationMethod: role.authenticationMethod,
-        isRequired: role.isRequired,
-        customMessage: role.customMessage,
-        sendReminders: role.sendReminders,
+        authenticationMethod: role.authenticationMethod || role.authentication_method,
+        isRequired: role.isRequired !== undefined ? role.isRequired : role.is_required,
+        customMessage: role.customMessage || role.custom_message,
+        sendReminders: role.sendReminders !== undefined ? role.sendReminders : role.send_reminders,
         language: role.language,
         timezone: role.timezone,
         accessRestrictions: role.accessRestrictions,
         notificationSettings: role.notificationSettings
       });
-      roleMapping.set(role.id, clonedRole.id);
+      // Prefer mapping by roleName for PG
+      roleMapping.set(role.roleId || role.id || role.roleName || role.name, clonedRole.id || clonedRole.roleName || clonedRole.name);
     }
     
     // Clone fields
     const fields = await this.getFields();
     for (const field of fields) {
-      const newRoleId = roleMapping.get(field.roleId);
-      if (newRoleId) {
-        await field.clone(clonedTemplate.id, newRoleId);
-      }
+      const newRoleKey = field.roleId || field.roleName; // legacy or PG hint
+      const mapped = newRoleKey ? roleMapping.get(newRoleKey) : null;
+      await field.clone(clonedTemplate.id, mapped || null);
     }
     
     return clonedTemplate;
@@ -381,7 +543,15 @@ class EnvelopeTemplate {
 
   async update(updates) {
     const allowedFields = ['name', 'description', 'category', 'isPublic', 'templateData', 'tags'];
-    const fieldMapping = {
+    const fieldMappingSqlite = {
+      'name': 'name',
+      'description': 'description',
+      'category': 'category',
+      'isPublic': 'is_public',
+      'templateData': 'template_data',
+      'tags': 'tags'
+    };
+    const fieldMappingPg = {
       'name': 'name',
       'description': 'description',
       'category': 'category',
@@ -395,13 +565,17 @@ class EnvelopeTemplate {
     
     for (const [key, value] of Object.entries(updates)) {
       if (allowedFields.includes(key)) {
-        const dbField = fieldMapping[key];
+        const dbField = (isPostgres ? fieldMappingPg : fieldMappingSqlite)[key];
         if (key === 'templateData') {
           fields.push(`${dbField} = ?`);
-          values.push(JSON.stringify(value));
+          values.push(JSON.stringify(value || {}));
         } else if (key === 'tags') {
           fields.push(`${dbField} = ?`);
-          values.push(Array.isArray(value) ? value.join(',') : value);
+          if (isPostgres) {
+            values.push(Array.isArray(value) ? `{${value.map(t => '"' + String(t).replace(/"/g,'\\"') + '"').join(',')}}` : null);
+          } else {
+            values.push(Array.isArray(value) ? value.join(',') : value);
+          }
         } else {
           fields.push(`${dbField} = ?`);
           values.push(value);
@@ -413,6 +587,14 @@ class EnvelopeTemplate {
     
     values.push(this.id);
     
+    if (isPostgres) {
+      await db.run(
+        `UPDATE templates SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        values
+      );
+      return EnvelopeTemplate.findById(this.id);
+    }
+    
     await db.run(
       `UPDATE envelope_templates SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       values
@@ -422,6 +604,14 @@ class EnvelopeTemplate {
   }
 
   async incrementUsage() {
+    if (isPostgres) {
+      await db.run(
+        'UPDATE templates SET usage_count = usage_count + 1 WHERE id = ?',
+        [this.id]
+      );
+      this.usageCount = (this.usageCount || 0) + 1;
+      return;
+    }
     await db.run(
       'UPDATE envelope_templates SET usage_count = usage_count + 1 WHERE id = ?',
       [this.id]
@@ -430,30 +620,39 @@ class EnvelopeTemplate {
   }
 
   async delete() {
+    if (isPostgres) {
+      // fields(template_id) has ON DELETE CASCADE
+      await db.run('DELETE FROM templates WHERE id = ?', [this.id]);
+      return;
+    }
     await db.run('DELETE FROM envelope_templates WHERE id = ?', [this.id]);
   }
 
   async createEnvelopeFromTemplate(envelopeData) {
     const Envelope = require('./Envelope');
     
-    // Validate that all required roles are provided
+    // Validate required roles
     const roles = await this.getRoles();
-    const requiredRoles = roles.filter(role => role.isRequired);
+    const requiredRoles = roles.filter(role => role.isRequired || role.is_required);
     
     if (!envelopeData.roleAssignments) {
       throw new Error('Role assignments are required');
     }
     
+    // In PG, match by roleName if provided
     for (const requiredRole of requiredRoles) {
-      const assignment = envelopeData.roleAssignments.find(a => a.roleId === requiredRole.id);
+      const rid = requiredRole.id;
+      const rname = requiredRole.roleName || requiredRole.name;
+      const assignment = envelopeData.roleAssignments.find(a => a.roleId === rid || a.roleName === rname);
       if (!assignment || !assignment.email) {
-        throw new Error(`Required role "${requiredRole.displayName}" must be assigned`);
+        throw new Error(`Required role "${requiredRole.displayName || requiredRole.display_name || rname}" must be assigned`);
       }
     }
     
     // Create envelope with template data
     const envelope = await Envelope.create({
       userId: envelopeData.userId,
+      organizationId: envelopeData.organizationId,
       title: envelopeData.title || this.templateData?.envelope?.title || this.name,
       subject: envelopeData.subject || this.templateData?.envelope?.subject || `Please sign: ${this.name}`,
       message: envelopeData.message || this.templateData?.envelope?.message || 'Please review and sign the attached documents.',
@@ -480,29 +679,35 @@ class EnvelopeTemplate {
     }
 
     // Add recipients based on role assignments
-    const recipientMapping = new Map(); // Map role ID to recipient ID
+    const recipientMapping = new Map(); // key: roleName or roleId -> recipient ID
     
     for (const assignment of envelopeData.roleAssignments) {
-      const role = roles.find(r => r.id === assignment.roleId);
+      const role = roles.find(r => r.id === assignment.roleId || (r.roleName || r.name) === assignment.roleName);
       if (!role) continue;
-      
-      const recipientId = await role.assignToRecipient(envelope.id, {
+      const result = await envelope.addRecipient({
         email: assignment.email,
         name: assignment.name || assignment.email,
-        customMessage: assignment.customMessage
+        role: role.roleType || role.role_type || 'signer',
+        routingOrder: role.routingOrder || role.routing_order || 1,
+        permissions: role.permissions || {},
+        authenticationMethod: role.authenticationMethod || role.authentication_method || 'email',
+        customMessage: assignment.customMessage || role.customMessage || role.custom_message || '',
+        sendReminders: role.sendReminders !== undefined ? role.sendReminders : (role.send_reminders !== undefined ? role.send_reminders : true)
       });
-      
-      recipientMapping.set(role.id, recipientId);
+      const recipientId = result.id || result.lastID || result.lastId;
+      recipientMapping.set(role.id || role.roleName || role.name, recipientId);
     }
 
-    // Add signature fields from template
+    // Add fields from template
+    const TemplateField = require('./TemplateField');
     const fields = await this.getFields();
     for (const field of fields) {
-      const recipientId = recipientMapping.get(field.roleId);
-      const documentId = envelopeData.documentIds[field.documentIndex];
-      
-      if (recipientId && documentId) {
-        await field.toEnvelopeField(envelope.id, documentId, recipientId);
+      // Determine recipient by role hint if available
+      const roleKey = field.roleId || field.roleName; // legacy id or PG role name stored in validationRules
+      const recipientId = roleKey ? (recipientMapping.get(roleKey) || null) : null;
+      const documentId = envelopeData.documentIds[field.documentIndex || 0];
+      if (documentId) {
+        await TemplateField.toEnvelopeFieldStatic(field, envelope.id, documentId, recipientId);
       }
     }
 
@@ -524,6 +729,7 @@ class EnvelopeTemplate {
       id: this.id,
       uuid: this.uuid,
       userId: this.userId,
+      organizationId: this.organizationId,
       name: this.name,
       description: this.description,
       category: this.category,
@@ -541,7 +747,10 @@ class EnvelopeTemplate {
       estimatedTime: this.estimatedTime,
       difficultyLevel: this.difficultyLevel,
       createdAt: this.createdAt,
-      updatedAt: this.updatedAt
+      updatedAt: this.updatedAt,
+      type: this.type,
+      metadata: this.metadata,
+      roles: this.rolesJson
     };
   }
 }

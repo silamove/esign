@@ -30,7 +30,7 @@ class EnvelopeCertificate {
 
     // Get all recipients and their actions
     const recipients = await db.all(
-      `SELECT * FROM envelope_recipients 
+      `SELECT * FROM recipients 
        WHERE envelope_id = ? 
        ORDER BY routing_order ASC`,
       [envelopeId]
@@ -53,6 +53,21 @@ class EnvelopeCertificate {
        ORDER BY page ASC, y ASC, x ASC`,
       [envelopeId]
     );
+
+    // Get signature evidences (HSM/TSP)
+    let evidences = [];
+    try {
+      evidences = await db.all(
+        `SELECT se.*, r.email as recipient_email, r.name as recipient_name
+         FROM signature_evidences se
+         JOIN recipients r ON r.id = se.recipient_id
+         WHERE se.envelope_id = ?
+         ORDER BY se.created_at ASC`,
+        [envelopeId]
+      );
+    } catch (_) {
+      evidences = [];
+    }
 
     // Get audit trail
     const auditLogs = await db.all(
@@ -117,13 +132,21 @@ class EnvelopeCertificate {
       })),
       security: {
         generatedAt: new Date().toISOString(),
-        certificateVersion: '1.0',
+        certificateVersion: '1.1',
         integrity: {
           totalSignatures: signatureFields.filter(f => f.signed_at).length,
           requiredSignatures: signatureFields.filter(f => f.required).length,
           documentCount: documents.length,
           recipientCount: recipients.length
-        }
+        },
+        evidences: evidences.map(e => ({
+          provider: e.provider,
+          recipient: { id: e.recipient_id, email: e.recipient_email, name: e.recipient_name },
+          signaturePreview: e.signature_blob ? String(e.signature_blob).slice(0, 24) + '...' : null,
+          tsaPresent: !!e.tsa_token,
+          createdAt: e.created_at,
+          payload: (() => { try { return typeof e.payload_json === 'string' ? JSON.parse(e.payload_json) : e.payload_json; } catch { return null; } })()
+        }))
       },
       compliance: {
         electronicSignatureAct: 'ESIGN Act 2000 / UETA Compliant',

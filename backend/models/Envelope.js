@@ -176,12 +176,23 @@ class Envelope {
     } = recipientData;
 
     if (isPostgres) {
-      const result = await db.run(
-        `INSERT INTO recipients (envelope_id, email, name, role, routing_order, permissions, authentication_method, custom_message, send_reminders)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [this.id, email, name, role, routingOrder, JSON.stringify(permissions), authenticationMethod, customMessage, sendReminders]
-      );
-      return result;
+      const accessToken = uuidv4();
+      try {
+        const result = await db.run(
+          `INSERT INTO recipients (envelope_id, email, name, role, routing_order, permissions, authentication_method, custom_message, send_reminders, access_token)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [this.id, email, name, role, routingOrder, JSON.stringify(permissions), authenticationMethod, customMessage, sendReminders, accessToken]
+        );
+        return { ...result, accessToken };
+      } catch (e) {
+        // Fallback if access_token column not yet migrated
+        const result = await db.run(
+          `INSERT INTO recipients (envelope_id, email, name, role, routing_order, permissions, authentication_method, custom_message, send_reminders)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [this.id, email, name, role, routingOrder, JSON.stringify(permissions), authenticationMethod, customMessage, sendReminders]
+        );
+        return result;
+      }
     } else {
       const result = await db.run(
         `INSERT INTO envelope_recipients (envelope_id, email, name, role, routing_order, permissions, authentication_method, custom_message, send_reminders)

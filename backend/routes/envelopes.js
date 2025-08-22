@@ -876,4 +876,11 @@ router.post('/bulk/update', async (req, res) => {
   }
 });
 
+// Envelope signing (recipient link)
+const EnvelopeSignatureController = require('../controllers/envelopeSignatureController');
+router.post('/:uuid/recipients/:token/sign', async (req, res, next) => {
+  // Recipient links are typically unauthenticated; controller validates token & order
+  return EnvelopeSignatureController.signEnvelope(req, res, next);
+});
+
 module.exports = router;

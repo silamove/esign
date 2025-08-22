@@ -1,5 +1,5 @@
-// Dynamic database module that switches between SQLite and PostgreSQL
-// based on the DATABASE_TYPE environment variable
+// Database configuration and initialization
+// Chooses between SQLite and PostgreSQL based on environment
 
 const databaseType = process.env.DATABASE_TYPE || 'sqlite';
 

@@ -24,8 +24,10 @@ async function testDocumentsAPI() {
     }
     
     const loginResult = await loginResponse.json();
-    const token = loginResult.token;
+    console.log('Login result:', loginResult);
+    const token = loginResult.data.token;
     console.log('✅ Login successful');
+    console.log('Token:', token);
     
     // Test documents API
     const documentsResponse = await fetch('http://localhost:4000/api/documents', {

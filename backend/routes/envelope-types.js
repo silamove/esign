@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const EnvelopeType = require('../models/EnvelopeType');
-const authMiddleware = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/auth');
 
 // Get all envelope types
 router.get('/', authMiddleware, async (req, res) => {

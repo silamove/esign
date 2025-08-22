@@ -11,6 +11,7 @@ class User {
     this.isActive = data.is_active;
     this.createdAt = data.created_at;
     this.updatedAt = data.updated_at;
+    this.currentOrganizationId = data.current_organization_id;
   }
 
   static async create(userData) {
@@ -131,6 +132,74 @@ class User {
     });
     
     return await db.all(query, params);
+  }
+
+  // Organization-related methods
+  async getOrganizations() {
+    try {
+      const rows = await db.all(`
+        SELECT o.*, ou.role, ou.permissions, ou.joined_at as org_joined_at, ou.is_active as org_active
+        FROM organizations o
+        JOIN organization_users ou ON o.id = ou.organization_id
+        WHERE ou.user_id = ? AND ou.is_active = true
+        ORDER BY ou.joined_at DESC
+      `, [this.id]);
+      
+      return rows;
+    } catch (error) {
+      console.error('Error getting user organizations:', error);
+      throw error;
+    }
+  }
+
+  async getCurrentOrganization() {
+    try {
+      if (!this.currentOrganizationId) {
+        return null;
+      }
+
+      const Organization = require('./Organization');
+      return await Organization.findById(this.currentOrganizationId);
+    } catch (error) {
+      console.error('Error getting current organization:', error);
+      throw error;
+    }
+  }
+
+  async getOrganizationRole(organizationId) {
+    try {
+      const row = await db.get(`
+        SELECT role, permissions, is_active
+        FROM organization_users
+        WHERE user_id = ? AND organization_id = ?
+      `, [this.id, organizationId]);
+      
+      return row;
+    } catch (error) {
+      console.error('Error getting organization role:', error);
+      throw error;
+    }
+  }
+
+  async switchOrganization(organizationId) {
+    try {
+      // Verify user belongs to this organization
+      const userOrg = await this.getOrganizationRole(organizationId);
+      if (!userOrg || !userOrg.is_active) {
+        throw new Error('User does not belong to this organization');
+      }
+
+      await db.run(`
+        UPDATE users SET current_organization_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [organizationId, this.id]);
+
+      this.currentOrganizationId = organizationId;
+      return true;
+    } catch (error) {
+      console.error('Error switching organization:', error);
+      throw error;
+    }
   }
 
   toJSON() {

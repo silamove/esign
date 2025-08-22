@@ -36,6 +36,19 @@ class PostgresDatabase {
     }
   }
 
+  // Convert SQLite-style '?' placeholders to PostgreSQL-style $1, $2, ...
+  _convertPlaceholders(text) {
+    // Skip if already using $1 style
+    if (/(^|[^$])\$\d+/.test(text)) {
+      return text;
+    }
+    let index = 0;
+    return text.replace(/\?/g, () => {
+      index += 1;
+      return `$${index}`;
+    });
+  }
+
   async runMigrations() {
     // Create migrations table if it doesn't exist
     await this.query(`
@@ -74,23 +87,12 @@ class PostgresDatabase {
             const migrationPath = path.join(migrationsDir, file);
             const migrationSQL = await fs.readFile(migrationPath, 'utf8');
             
-            // Execute migration in transaction
+            // Execute migration in transaction as a single batch to support dollar-quoted blocks
             const client = await this.pool.connect();
             try {
               await client.query('BEGIN');
-              
-              // Split by semicolon and execute each statement
-              const statements = migrationSQL
-                .split(';')
-                .map(stmt => stmt.trim())
-                .filter(stmt => stmt.length > 0);
-              
-              for (const statement of statements) {
-                if (statement.trim()) {
-                  await client.query(statement);
-                }
-              }
-              
+              await client.query(migrationSQL);
+
               // Record migration
               await client.query('INSERT INTO migrations (version, name) VALUES ($1, $2)', [version, name]);
               
@@ -121,7 +123,8 @@ class PostgresDatabase {
 
   async query(text, params = []) {
     try {
-      const result = await this.pool.query(text, params);
+      const converted = this._convertPlaceholders(text);
+      const result = await this.pool.query(converted, params);
       return result;
     } catch (error) {
       console.error('Database query error:', error.message);

@@ -1,11 +1,13 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('./database');
+const isPostgres = (process.env.DATABASE_TYPE === 'postgresql');
 
 class Envelope {
   constructor(data) {
     this.id = data.id;
     this.uuid = data.uuid;
     this.userId = data.user_id || data.userId;
+    this.organizationId = data.organization_id || data.organizationId; // added for enterprise features
     this.title = data.title;
     this.subject = data.subject;
     this.message = data.message;
@@ -23,6 +25,7 @@ class Envelope {
   static async create(envelopeData) {
     const {
       userId,
+      organizationId = null,
       title,
       subject = '',
       message = '',
@@ -35,9 +38,9 @@ class Envelope {
     const uuid = uuidv4();
     
     const result = await db.run(
-      `INSERT INTO envelopes (uuid, user_id, title, subject, message, priority, expiration_date, reminder_frequency, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [uuid, userId, title, subject, message, priority, expirationDate, reminderFrequency, JSON.stringify(metadata)]
+      `INSERT INTO envelopes (uuid, user_id, organization_id, title, subject, message, priority, expiration_date, reminder_frequency, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uuid, userId, organizationId, title, subject, message, priority, expirationDate, reminderFrequency, JSON.stringify(metadata)]
     );
     
     return this.findById(result.id);
@@ -121,10 +124,15 @@ class Envelope {
   }
 
   async delete() {
-    // Delete related data first
-    await db.run('DELETE FROM envelope_recipients WHERE envelope_id = ?', [this.id]);
-    await db.run('DELETE FROM envelope_documents WHERE envelope_id = ?', [this.id]);
-    await db.run('DELETE FROM envelope_signatures WHERE envelope_id = ?', [this.id]);
+    if (isPostgres) {
+      // New unified tables; FKs are ON DELETE CASCADE, but be explicit
+      await db.run('DELETE FROM fields WHERE envelope_id = ?', [this.id]);
+      await db.run('DELETE FROM recipients WHERE envelope_id = ?', [this.id]);
+    } else {
+      await db.run('DELETE FROM envelope_recipients WHERE envelope_id = ?', [this.id]);
+      await db.run('DELETE FROM envelope_documents WHERE envelope_id = ?', [this.id]);
+      await db.run('DELETE FROM envelope_signatures WHERE envelope_id = ?', [this.id]);
+    }
     await db.run('DELETE FROM envelopes WHERE id = ?', [this.id]);
   }
 
@@ -167,28 +175,51 @@ class Envelope {
       sendReminders = true
     } = recipientData;
 
-    const result = await db.run(
-      `INSERT INTO envelope_recipients (envelope_id, email, name, role, routing_order, permissions, authentication_method, custom_message, send_reminders)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [this.id, email, name, role, routingOrder, JSON.stringify(permissions), authenticationMethod, customMessage, sendReminders]
-    );
-    
-    return result;
+    if (isPostgres) {
+      const result = await db.run(
+        `INSERT INTO recipients (envelope_id, email, name, role, routing_order, permissions, authentication_method, custom_message, send_reminders)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [this.id, email, name, role, routingOrder, JSON.stringify(permissions), authenticationMethod, customMessage, sendReminders]
+      );
+      return result;
+    } else {
+      const result = await db.run(
+        `INSERT INTO envelope_recipients (envelope_id, email, name, role, routing_order, permissions, authentication_method, custom_message, send_reminders)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [this.id, email, name, role, routingOrder, JSON.stringify(permissions), authenticationMethod, customMessage, sendReminders]
+      );
+      return result;
+    }
   }
 
   async removeRecipient(recipientId) {
-    await db.run('DELETE FROM envelope_recipients WHERE id = ? AND envelope_id = ?', [recipientId, this.id]);
+    if (isPostgres) {
+      await db.run('DELETE FROM recipients WHERE id = ? AND envelope_id = ?', [recipientId, this.id]);
+    } else {
+      await db.run('DELETE FROM envelope_recipients WHERE id = ? AND envelope_id = ?', [recipientId, this.id]);
+    }
   }
 
   async getRecipients() {
-    const rows = await db.all(
-      'SELECT * FROM envelope_recipients WHERE envelope_id = ? ORDER BY routing_order ASC',
-      [this.id]
-    );
-    return rows.map(row => ({
-      ...row,
-      permissions: JSON.parse(row.permissions || '{}')
-    }));
+    if (isPostgres) {
+      const rows = await db.all(
+        'SELECT * FROM recipients WHERE envelope_id = ? ORDER BY routing_order ASC',
+        [this.id]
+      );
+      return rows.map(row => ({
+        ...row,
+        permissions: typeof row.permissions === 'string' ? JSON.parse(row.permissions || '{}') : row.permissions || {}
+      }));
+    } else {
+      const rows = await db.all(
+        'SELECT * FROM envelope_recipients WHERE envelope_id = ? ORDER BY routing_order ASC',
+        [this.id]
+      );
+      return rows.map(row => ({
+        ...row,
+        permissions: JSON.parse(row.permissions || '{}')
+      }));
+    }
   }
 
   // Signature field management
@@ -204,31 +235,141 @@ class Envelope {
       validationRules = {}
     } = fieldData;
 
-    const result = await db.run(
-      `INSERT INTO envelope_signatures (envelope_id, document_id, recipient_email, field_type, x, y, width, height, page, required, field_name, default_value, validation_rules)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [this.id, documentId, recipientEmail, fieldType, x, y, width, height, page, required, fieldName, defaultValue, JSON.stringify(validationRules)]
-    );
-    
-    return result;
+    if (isPostgres) {
+      const result = await db.run(
+        `INSERT INTO fields (envelope_id, document_id, recipient_id, type, name, label, x, y, width, height, page, required, default_value, validation_rules)
+         VALUES (?, ?, (SELECT id FROM recipients WHERE envelope_id = ? AND email = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+        [
+          this.id,
+          documentId,
+          this.id,
+          recipientEmail,
+          fieldType,
+          fieldName,
+          fieldName,
+          x, y, width, height,
+          page,
+          required,
+          defaultValue,
+          JSON.stringify(validationRules)
+        ]
+      );
+      return result;
+    } else {
+      const result = await db.run(
+        `INSERT INTO envelope_signatures (envelope_id, document_id, recipient_email, field_type, x, y, width, height, page, required, field_name, default_value, validation_rules)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [this.id, documentId, recipientEmail, fieldType, x, y, width, height, page, required, fieldName, defaultValue, JSON.stringify(validationRules)]
+      );
+      return result;
+    }
   }
 
   async getSignatureFields(documentId = null) {
-    let query = 'SELECT * FROM envelope_signatures WHERE envelope_id = ?';
-    let params = [this.id];
-    
-    if (documentId) {
-      query += ' AND document_id = ?';
-      params.push(documentId);
+    if (isPostgres) {
+      let query = `
+        SELECT f.*, r.email AS recipient_email
+        FROM fields f
+        LEFT JOIN recipients r ON r.id = f.recipient_id
+        WHERE f.envelope_id = ?`;
+      const params = [this.id];
+      
+      if (documentId) {
+        query += ' AND f.document_id = ?';
+        params.push(documentId);
+      }
+      
+      query += ' ORDER BY f.page ASC NULLS LAST, f.y ASC NULLS LAST, f.x ASC NULLS LAST';
+      const rows = await db.all(query, params);
+      return rows.map(row => ({
+        id: row.id,
+        envelope_id: row.envelope_id,
+        document_id: row.document_id,
+        recipient_id: row.recipient_id,
+        recipient_email: row.recipient_email,
+        field_type: row.type,
+        x: row.x,
+        y: row.y,
+        width: row.width,
+        height: row.height,
+        page: row.page,
+        required: row.required,
+        field_name: row.name || row.label,
+        default_value: row.default_value,
+        validation_rules: typeof row.validation_rules === 'string' ? JSON.parse(row.validation_rules || '{}') : row.validation_rules || {},
+        value: row.value,
+        signed_at: row.signed_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      }));
+    } else {
+      let query = 'SELECT * FROM envelope_signatures WHERE envelope_id = ?';
+      let params = [this.id];
+      
+      if (documentId) {
+        query += ' AND document_id = ?';
+        params.push(documentId);
+      }
+      
+      query += ' ORDER BY page ASC, y ASC, x ASC';
+      
+      const rows = await db.all(query, params);
+      return rows.map(row => ({
+        ...row,
+        validationRules: JSON.parse(row.validation_rules || '{}')
+      }));
     }
-    
-    query += ' ORDER BY page ASC, y ASC, x ASC';
-    
-    const rows = await db.all(query, params);
-    return rows.map(row => ({
-      ...row,
-      validationRules: JSON.parse(row.validation_rules || '{}')
-    }));
+  }
+
+  // Envelope Types (templates-backed) helpers
+  static async listEnvelopeTypes({ activeOnly = true } = {}) {
+    if (!isPostgres) {
+      // Legacy SQLite table
+      const rows = await db.all(
+        `SELECT * FROM envelope_types ${activeOnly ? 'WHERE is_active = 1' : ''} ORDER BY sort_order ASC, display_name ASC`
+      );
+      return rows;
+    }
+    const rows = await db.all(
+      `SELECT * FROM envelope_types_view ${activeOnly ? 'WHERE is_active = true' : ''} ORDER BY sort_order NULLS LAST, display_name`
+    );
+    return rows;
+  }
+
+  async setEnvelopeType(typeId) {
+    if (!isPostgres) {
+      // Store on envelopes table if present, else in metadata
+      try {
+        await db.run('UPDATE envelopes SET envelope_type_id = ? WHERE id = ?', [typeId, this.id]);
+      } catch (_) {
+        // fallback to metadata
+        const type = await db.get('SELECT * FROM envelope_types WHERE id = ?', [typeId]);
+        this.metadata = { ...(this.metadata || {}), envelope_type_id: typeId, envelope_type_name: type?.display_name, category: type?.category };
+        await this.update({ metadata: this.metadata });
+      }
+      return this;
+    }
+    const type = await db.get('SELECT * FROM envelope_types_view WHERE id = ?', [typeId]);
+    if (!type) throw new Error('Envelope type not found');
+    this.metadata = {
+      ...(this.metadata || {}),
+      envelope_type_id: type.id,
+      envelope_type_name: type.display_name,
+      category: type.category,
+      default_expiration_days: type.default_expiration_days
+    };
+    await this.update({ metadata: this.metadata });
+    return this;
+  }
+
+  async getEnvelopeType() {
+    if (this.metadata?.envelope_type_id) {
+      if (!isPostgres) {
+        return db.get('SELECT * FROM envelope_types WHERE id = ?', [this.metadata.envelope_type_id]);
+      }
+      return db.get('SELECT * FROM envelope_types_view WHERE id = ?', [this.metadata.envelope_type_id]);
+    }
+    return null;
   }
 
   // Workflow management
@@ -253,8 +394,14 @@ class Envelope {
       sentAt: new Date().toISOString()
     });
 
-    // Here you would trigger email notifications to recipients
-    // For now, we'll just log the action
+    // Execute org-level workflows for Postgres
+    try {
+      await this.executeWorkflows('on_send', { recipientsCount: recipients.length, documentsCount: documents.length });
+    } catch (e) {
+      console.warn('Workflow execution on send failed:', e.message);
+    }
+
+    // Trigger notifications (placeholder)
     await this.logAction('envelope_sent', this.userId, {
       recipientCount: recipients.length,
       documentCount: documents.length
@@ -411,7 +558,23 @@ class Envelope {
     return rows;
   }
 
+  // For Postgres, create org-level workflow from legacy-style parts; for SQLite keep envelope_workflows
   async addWorkflow(workflowName, triggerType, triggerConditions, actions) {
+    if (isPostgres) {
+      if (!this.organizationId) throw new Error('Envelope organization_id is required to add a workflow');
+      const definition = {
+        name: workflowName,
+        triggers: [triggerType],
+        conditions: triggerConditions || [],
+        actions: actions || []
+      };
+      const res = await db.run(
+        `INSERT INTO workflows (organization_id, name, description, definition)
+         VALUES (?, ?, ?, ?)`,
+        [this.organizationId, workflowName, null, JSON.stringify(definition)]
+      );
+      return res;
+    }
     const result = await db.run(
       `INSERT INTO envelope_workflows (envelope_id, workflow_name, trigger_type, trigger_conditions, actions)
        VALUES (?, ?, ?, ?, ?)`,
@@ -421,6 +584,33 @@ class Envelope {
   }
 
   async executeWorkflows(triggerType, eventData = {}) {
+    if (isPostgres) {
+      // Evaluate org-level workflows
+      if (!this.organizationId) return; // nothing to run
+      const rows = await db.all(
+        'SELECT id, name, definition FROM workflows WHERE organization_id = ? AND is_active = true',
+        [this.organizationId]
+      );
+      for (const row of rows) {
+        let def;
+        try {
+          def = typeof row.definition === 'string' ? JSON.parse(row.definition || '{}') : row.definition || {};
+        } catch (_) {
+          def = {};
+        }
+        const triggers = def.triggers || [];
+        if (triggers.length && !triggers.includes(triggerType)) continue;
+        const conditions = def.conditions || [];
+        const actions = def.actions || [];
+
+        if (this.checkWorkflowConditions(conditions, eventData)) {
+          await this.executeWorkflowActions(actions, row.id);
+          await this.logAction('workflow_executed', this.userId, { workflowId: row.id, triggerType });
+        }
+      }
+      return;
+    }
+
     const workflows = await db.all(
       'SELECT * FROM envelope_workflows WHERE envelope_id = ? AND trigger_type = ? AND is_active = 1',
       [this.id, triggerType]
@@ -444,20 +634,24 @@ class Envelope {
   }
 
   checkWorkflowConditions(conditions, eventData) {
-    // Simple condition checking - can be enhanced based on requirements
+    // Simple condition checking - can be enhanced
     for (const condition of conditions) {
+      if (!condition || !condition.type) continue;
       switch (condition.type) {
         case 'status_equals':
           if (this.status !== condition.value) return false;
           break;
-        case 'field_value':
-          // Check if specific field has specific value
+        case 'always':
           break;
-        case 'time_elapsed':
-          // Check if certain time has elapsed
+        // Example numeric condition: { type: 'gt', key: 'total', value: 10000 }
+        case 'gt': {
+          const v = Number(eventData?.[condition.key]);
+          if (!(v > Number(condition.value))) return false;
           break;
+        }
         default:
-          return true;
+          // Unknown condition types are treated as pass-through for now
+          break;
       }
     }
     return true;
@@ -665,6 +859,7 @@ class Envelope {
       id: this.id,
       uuid: this.uuid,
       userId: this.userId,
+      organizationId: this.organizationId,
       title: this.title,
       subject: this.subject,
       message: this.message,

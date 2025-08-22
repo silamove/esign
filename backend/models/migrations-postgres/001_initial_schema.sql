@@ -1,5 +1,6 @@
 -- Initial schema for PostgreSQL
 -- Creates all core tables for the OnDottedLine e-signature platform
+-- PostgreSQL Syntax
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (

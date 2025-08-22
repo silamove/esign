@@ -1,7 +1,7 @@
 -- Seed data for PostgreSQL database
 -- Creates initial users, organizations, and envelope types
 
--- Insert Demo Organization
+-- Insert Demo Organization (idempotent)
 INSERT INTO organizations (
     name, 
     slug, 
@@ -9,38 +9,48 @@ INSERT INTO organizations (
     settings,
     subscription_plan,
     subscription_status
-) 
-SELECT 'Demo Organization', 'demo-org', 'demo.pdfsign.com', 
-       '{"branding":{"primaryColor":"#6366f1","allowCustomBranding":true},"features":{"maxUsers":50,"maxDocumentsPerMonth":1000,"customTemplates":true,"apiAccess":true}}',
-       'enterprise', 'active'
-WHERE NOT EXISTS (SELECT 1 FROM organizations WHERE slug = 'demo-org');
+) VALUES (
+    'Demo Organization',
+    'demo-org',
+    'demo.pdfsign.com',
+    '{"branding":{"primaryColor":"#6366f1","allowCustomBranding":true},"features":{"maxUsers":50,"maxDocumentsPerMonth":1000,"customTemplates":true,"apiAccess":true}}',
+    'enterprise',
+    'active'
+)
+ON CONFLICT (slug) DO NOTHING;
 
--- Insert users
+-- Insert users (idempotent) and associate to Demo Organization by slug
 INSERT INTO users (email, password, first_name, last_name, role, current_organization_id) 
-SELECT 'admin@pdfsign.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyWoBl0pBhOF3S', 'Admin', 'User', 'admin', 1
+SELECT 'admin@pdfsign.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyWoBl0pBhOF3S', 'Admin', 'User', 'admin',
+       (SELECT id FROM organizations WHERE slug = 'demo-org')
 WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'admin@pdfsign.com');
 
 INSERT INTO users (email, password, first_name, last_name, role, current_organization_id) 
-SELECT 'user@pdfsign.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyWoBl0pBhOF3S', 'Regular', 'User', 'user', 1
+SELECT 'user@pdfsign.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyWoBl0pBhOF3S', 'Regular', 'User', 'user',
+       (SELECT id FROM organizations WHERE slug = 'demo-org')
 WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'user@pdfsign.com');
 
 INSERT INTO users (email, password, first_name, last_name, role, current_organization_id) 
-SELECT 'demo@pdfsign.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyWoBl0pBhOF3S', 'Demo', 'Account', 'user', 1
+SELECT 'demo@pdfsign.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyWoBl0pBhOF3S', 'Demo', 'Account', 'user',
+       (SELECT id FROM organizations WHERE slug = 'demo-org')
 WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'demo@pdfsign.com');
 
--- Insert organization-user relationships
+-- Insert organization-user relationships (idempotent)
 INSERT INTO organization_users (organization_id, user_id, role)
-SELECT 1, u.id, 
-    CASE 
-        WHEN u.role = 'admin' THEN 'owner'
-        ELSE 'admin'
-    END
+SELECT 
+  (SELECT id FROM organizations WHERE slug = 'demo-org'),
+  u.id,
+  CASE WHEN u.role = 'admin' THEN 'owner' ELSE 'admin' END
 FROM users u
 WHERE u.email IN ('admin@pdfsign.com', 'user@pdfsign.com', 'demo@pdfsign.com')
   AND NOT EXISTS (
-    SELECT 1 FROM organization_users 
-    WHERE organization_id = 1 AND user_id = u.id
+    SELECT 1 FROM organization_users ou 
+    WHERE ou.organization_id = (SELECT id FROM organizations WHERE slug = 'demo-org')
+      AND ou.user_id = u.id
   );
+
+-- Ensure unique constraint for envelope_types.name to support ON CONFLICT
+CREATE UNIQUE INDEX IF NOT EXISTS ux_envelope_types_name ON envelope_types(name);
 
 -- Insert envelope types
 INSERT INTO envelope_types (
@@ -96,4 +106,4 @@ INSERT INTO envelope_types (
      '{"requiredSignatures": 2, "witnessRequired": false, "notaryRequired": false}',
      '[{"type": "signature", "label": "Licensor Signature"}, {"type": "signature", "label": "Licensee Signature"}, {"type": "text", "label": "Licensed Property"}]',
      '{"autoReminders": true, "reminderInterval": 10, "escalationPath": ["ip_manager", "legal"]}')
-WHERE NOT EXISTS (SELECT 1 FROM envelope_types WHERE name = 'licensing_agreement');
+ON CONFLICT (name) DO NOTHING;

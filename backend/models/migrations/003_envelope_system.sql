@@ -91,7 +91,9 @@ CREATE TABLE IF NOT EXISTS envelope_notifications (
 );
 
 -- Update audit_logs table to include envelope_id (skip if already exists)
--- This migration will be handled programmatically to check if column exists
+-- Note: SQLite does not support IF NOT EXISTS for columns. This migration
+-- is intended to run once. If the column already exists, you may safely ignore the error.
+ALTER TABLE audit_logs ADD COLUMN envelope_id INTEGER;
 
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_envelopes_user_id ON envelopes(user_id);
